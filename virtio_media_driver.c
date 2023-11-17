@@ -592,7 +592,7 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 {
 	struct virtio_media_session *session =
 		fh_to_session(file->private_data);
-	struct virtio_media_queue_state *input_queue =
+	struct virtio_media_queue_state *capture_queue =
 		&session->queues[V4L2_BUF_TYPE_VIDEO_CAPTURE];
 	struct virtio_media_queue_state *output_queue =
 		&session->queues[V4L2_BUF_TYPE_VIDEO_OUTPUT];
@@ -610,13 +610,13 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 
 	mutex_lock(&session->dqbufs_lock);
 	if (req_events & (EPOLLIN | EPOLLRDNORM | EPOLLOUT | EPOLLWRNORM)) {
-		if ((!input_queue->streaming ||
-		     input_queue->queued_bufs == 0) &&
+		if ((!capture_queue->streaming ||
+		     capture_queue->queued_bufs == 0) &&
 		    (!output_queue->streaming ||
 		     output_queue->queued_bufs == 0)) {
 			rc |= EPOLLERR;
 		} else {
-			if (!list_empty(&input_queue->pending_dqbufs))
+			if (!list_empty(&capture_queue->pending_dqbufs))
 				rc |= EPOLLIN | EPOLLRDNORM;
 
 			if (!list_empty(&output_queue->pending_dqbufs))
