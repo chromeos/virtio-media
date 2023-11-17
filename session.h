@@ -34,6 +34,8 @@ struct virtio_media_buffer {
  *
  * @streaming: Whether the queue is currently streaming.
  * @allocated_bufs: How many buffers are currently allocated.
+ * @is_capture_last: set to true when the last buffer has been received on a
+ * 	capture queue, so we can return -EPIPE on subsequent DQBUF requests.
  * @buffers: Buffer state array of size @allocated_bufs.
  * @queued_bufs: How many buffers are currently queued at the host.
  * @pending_dqbufs: Buffers that are available for being dequeued.
@@ -41,6 +43,8 @@ struct virtio_media_buffer {
 struct virtio_media_queue_state {
 	bool streaming;
 	size_t allocated_bufs;
+	bool is_capture_last;
+
 	struct virtio_media_buffer *buffers;
 	size_t queued_bufs;
 	struct list_head pending_dqbufs;

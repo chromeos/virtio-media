@@ -1123,16 +1123,19 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
 static void
 virtio_media_clear_pending_dqbufs(struct virtio_media *vv,
 				  struct virtio_media_session *session,
-				  enum v4l2_buf_type queue)
+				  enum v4l2_buf_type type)
 {
 	struct list_head *p, *n;
+	struct virtio_media_queue_state *queue;
 
-	if (queue > VIRTIO_MEDIA_LAST_QUEUE)
+	if (type > VIRTIO_MEDIA_LAST_QUEUE)
 		return;
+
+	queue = &session->queues[type];
 
 	mutex_lock(&session->dqbufs_lock);
 
-	list_for_each_safe(p, n, &session->queues[queue].pending_dqbufs) {
+	list_for_each_safe(p, n, &queue->pending_dqbufs) {
 		struct virtio_media_buffer *dqbuf =
 			list_entry(p, struct virtio_media_buffer, list);
 
@@ -1140,6 +1143,8 @@ virtio_media_clear_pending_dqbufs(struct virtio_media *vv,
 	}
 
 	mutex_unlock(&session->dqbufs_lock);
+
+	queue->is_capture_last = false;
 }
 
 /*
@@ -1675,6 +1680,14 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 	}
 
 	queue = &session->queues[b->type];
+
+	/*
+	 * If a buffer with the LAST flag has been returned, subsequent calls to DQBUF
+	 * must return -EPIPE until the queue is cleared.
+	 */
+	if (queue->is_capture_last)
+		return -EPIPE;
+
 	buffer_queue = &queue->pending_dqbufs;
 
 	/* Only block for a buffer if the file has been opened with O_NONBLOCK. */
@@ -1709,6 +1722,10 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 
 	if (is_multiplanar) {
 		b->m.planes = planes_backup;
+	}
+
+	if (V4L2_TYPE_IS_CAPTURE(b->type) && b->flags & V4L2_BUF_FLAG_LAST) {
+		queue->is_capture_last = true;
 	}
 
 	return 0;
@@ -1995,6 +2012,7 @@ static int virtio_media_try_encoder_cmd(struct file *file, void *fh,
 static int virtio_media_decoder_cmd(struct file *file, void *fh,
 				    struct v4l2_decoder_cmd *cmd)
 {
+	struct virtio_media_session *session = fh_to_session(fh);
 	int ret;
 
 	ret = virtio_media_send_wr_ioctl(
@@ -2002,6 +2020,14 @@ static int virtio_media_decoder_cmd(struct file *file, void *fh,
 		sizeof(*cmd), sizeof(*cmd));
 	if (ret)
 		return ret;
+
+	/* A START command makes the CAPTURE queue able to dequeue again. */
+	if (cmd->cmd == V4L2_DEC_CMD_START) {
+		session->queues[V4L2_BUF_TYPE_VIDEO_CAPTURE].is_capture_last =
+			false;
+		session->queues[V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE]
+			.is_capture_last = false;
+	}
 
 	return 0;
 }
