@@ -311,7 +311,7 @@ static int virtio_media_send_command(struct virtio_media *vv,
 	if (local_resp_len < minimum_resp_len) {
 		v4l2_err(
 			&vv->v4l2_dev,
-			"received response is too short: received %d, expected at least %zu\n",
+			"received response is too short: received %zu, expected at least %zu\n",
 			local_resp_len, minimum_resp_len);
 		return -EINVAL;
 	}

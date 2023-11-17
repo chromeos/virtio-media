@@ -236,7 +236,7 @@ static int prepare_userptr_to_host(struct sg_table *sgt, unsigned long userptr,
 
 	framevec = vb2_create_framevec(userptr, length, true);
 	if (IS_ERR(framevec)) {
-		printk("error creating frame vector for userptr 0x%llx, length 0x%llx\n",
+		printk("error creating frame vector for userptr 0x%lx, length 0x%lx\n",
 		       userptr, length);
 		return PTR_ERR(framevec);
 	}
