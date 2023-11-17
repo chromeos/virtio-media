@@ -1126,18 +1126,11 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
  * Helper function to clear the list of buffers waiting to be dequeued on a
  * queue that has just been streamed off.
  */
-static void
-virtio_media_clear_pending_dqbufs(struct virtio_media *vv,
-				  struct virtio_media_session *session,
-				  enum v4l2_buf_type type)
+static void virtio_media_clear_queue(struct virtio_media *vv,
+				     struct virtio_media_session *session,
+				     struct virtio_media_queue_state *queue)
 {
 	struct list_head *p, *n;
-	struct virtio_media_queue_state *queue;
-
-	if (type > VIRTIO_MEDIA_LAST_QUEUE)
-		return;
-
-	queue = &session->queues[type];
 
 	mutex_lock(&session->dqbufs_lock);
 
@@ -1150,6 +1143,8 @@ virtio_media_clear_pending_dqbufs(struct virtio_media *vv,
 
 	mutex_unlock(&session->dqbufs_lock);
 
+	queue->queued_bufs = 0;
+	queue->streaming = false;
 	queue->is_capture_last = false;
 }
 
@@ -1494,7 +1489,6 @@ static int virtio_media_streamoff(struct file *file, void *fh,
 	struct video_device *video_dev = video_devdata(file);
 	struct virtio_media *vv = to_virtio_media(video_dev);
 	struct virtio_media_session *session = fh_to_session(fh);
-	struct virtio_media_queue_state *queue;
 	int ret;
 
 	if (i > VIRTIO_MEDIA_LAST_QUEUE) {
@@ -1507,12 +1501,7 @@ static int virtio_media_streamoff(struct file *file, void *fh,
 	if (ret < 0)
 		return ret;
 
-	queue = &session->queues[i];
-
-	queue->streaming = false;
-	queue->queued_bufs = 0;
-
-	virtio_media_clear_pending_dqbufs(vv, session, i);
+	virtio_media_clear_queue(vv, session, &session->queues[i]);
 
 	return 0;
 }
@@ -1544,9 +1533,7 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 
 	/* REQBUFS(0) is an implicit STREAMOFF. */
 	if (b->count == 0) {
-		virtio_media_clear_pending_dqbufs(vv, session, b->type);
-		queue->queued_bufs = 0;
-		queue->streaming = false;
+		virtio_media_clear_queue(vv, session, queue);
 	} else {
 		queue->buffers =
 			vzalloc(sizeof(struct virtio_media_buffer) * b->count);
