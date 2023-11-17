@@ -56,6 +56,7 @@ struct virtio_media_queue_state {
  * @fh: file handler for the session.
  * @id: session ID used to communicate with the device.
  * @nonblocking_dequeue: whether dequeue should block or not (nonblocking if file opened with O_NONBLOCK).
+ * @uses_mplane: whether the queues for this session use the MPLANE API or not.
  * @cmd: union of session-related commands. Each session can have one command currently running.
  * @resp: union of session-related responses.
  * @shadow_buf: shadow buffer where commandq data can be staged before being sent to the device.
@@ -69,6 +70,7 @@ struct virtio_media_session {
 	struct v4l2_fh fh;
 	u32 id;
 	bool nonblocking_dequeue;
+	bool uses_mplane;
 
 	union {
 		struct virtio_media_cmd_close close;

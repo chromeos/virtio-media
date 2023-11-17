@@ -592,10 +592,16 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 {
 	struct virtio_media_session *session =
 		fh_to_session(file->private_data);
+	enum v4l2_buf_type capture_type =
+		session->uses_mplane ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE :
+				       V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	enum v4l2_buf_type output_type =
+		session->uses_mplane ? V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE :
+				       V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	struct virtio_media_queue_state *capture_queue =
-		&session->queues[V4L2_BUF_TYPE_VIDEO_CAPTURE];
+		&session->queues[capture_type];
 	struct virtio_media_queue_state *output_queue =
-		&session->queues[V4L2_BUF_TYPE_VIDEO_OUTPUT];
+		&session->queues[output_type];
 	__poll_t req_events = poll_requested_events(wait);
 	__poll_t rc = 0;
 
@@ -1550,6 +1556,14 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	}
 
 	queue->allocated_bufs = b->count;
+
+	/*
+	 * If a multiplanar queue is successfully used here, this means
+	 * we are using the multiplanar interface.
+	 */
+	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
+		session->uses_mplane = true;
+	}
 
 	/* TODO remove once we support DMABUFs */
 	b->capabilities &= ~V4L2_BUF_CAP_SUPPORTS_DMABUF;
