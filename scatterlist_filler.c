@@ -4,7 +4,7 @@
 #include <linux/moduleparam.h>
 #include <media/videobuf2-memops.h>
 
-#include "descriptor.h"
+#include "scatterlist_filler.h"
 #include "session.h"
 
 /**

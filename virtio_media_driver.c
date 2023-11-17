@@ -26,7 +26,7 @@
 #include "linux/videodev2.h"
 #include "protocol.h"
 #include "session.h"
-#include "descriptor.h"
+#include "scatterlist_filler.h"
 
 #define VIRTIO_MEDIA_NUM_EVENT_BUFS 16
 

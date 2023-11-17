@@ -1,2 +1,2 @@
 obj-m := virtio-media.o
-virtio-media-y := descriptor.o virtio_media_driver.o
+virtio-media-y := scatterlist_filler.o virtio_media_driver.o
