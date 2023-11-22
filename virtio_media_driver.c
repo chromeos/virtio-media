@@ -845,8 +845,6 @@ static int virtio_media_send_w_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	if (ret < 0)
 		return ret;
 
-	/* TODO error code returned by ioctl? */
-
 	return 0;
 }
 
