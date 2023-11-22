@@ -228,50 +228,84 @@ device, which must also return the value initially passed by the driver. For
 instance, for a `struct v4l2_ext_controls` which `count` is `16`:
 
 ```
++--------------------------------------+
+| struct v4l2_ext_controls             |
++--------------------------------------+
+| struct v4l2_ext_control for plane 0  |
+| struct v4l2_ext_control for plane 1  |
+| ...                                  |
+| struct v4l2_ext_control for plane 15 |
++--------------------------------------+
+```
+
+Similarly, a multiplanar `struct v4l2_buffer` with its `length` member set to 3
+will be laid out as follows:
+
+```
 +-------------------------------------+
-| struct v4l2_ext_controls            |
+| struct v4l2_buffer                  |
 +-------------------------------------+
-| array of 16 struct v4l2_ext_control |
+| struct v4l2_plane for plane 0       |
+| struct v4l2_plane for plane 1       |
+| struct v4l2_plane for plane 2       |
 +-------------------------------------+
 ```
 
-Individual controls may also have their own `ptr` member set if their `size` is
-non-zero. In that case that payload will follow the array of
-`v4l2_ext_control`, in their order of appearance. For instance, if controls `3`
-and `7` have their `size` member set to `256` and `1024` respectively, then the
-driver will lay the payload out as follows:
+### Handling of pointers to userspace memory
+
+A few pointers are special in that they point to userspace memory. They are:
+
+* The `m.userptr` member of `struct v4l2_buffer` and `struct v4l2_plane`
+  (technically an `unsigned long`, but designated a userspace address),
+* The `ptr` member of `struct v4l2_ext_ctrl`.
+
+These pointers can cover large areas of scattered memory, which has the
+potential to require more descriptors than the virtio queue can provide. For
+these particular pointers only, a list of `struct virtio_media_sg_entry` that
+covers the needed amount of memory for the pointer is used instead of using
+descriptors to map the pointed memory directly.
+
+For each such pointer to read, the device reads as many SG entries as needed to
+cover the length of the pointed buffer, as described by its parent structure
+(`length` member of `struct v4l2_buffer` or `struct v4l2_plane` for buffer
+memory, and `size` member of `struct v4l2_ext_control` for control data).
+
+Since the device never needs to modify the list of SG entries, it is only
+provided by the driver in the device-readable section of the descriptor chain,
+and not repeated in the device-writable section, even for `WR` ioctls.
+
+To illustrate the data layout, here is what the descriptor chain of a
+`VIDIOC_QBUF` ioctl queueing a 3-planar `USERPTR` buffer would look like:
 
 ```
-+-------------------------------------+
-| struct v4l2_ext_controls            |
-+-------------------------------------+
-| array of 16 struct v4l2_ext_control |
-+-------------------------------------+
-| 256 bytes payload of control 3      |
-+-------------------------------------+
-| 1024 bytes payload of control 7     |
-+-------------------------------------+
++---------------------------------------------------+
+| struct virtio_media_cmd_ioctl                     |
++---------------------------------------------------+
+| struct v4l2_buffer                                |
++---------------------------------------------------+
+| struct v4l2_plane for plane 0                     |
+| struct v4l2_plane for plane 1                     |
+| struct v4l2_plane for plane 2                     |
++---------------------------------------------------+
+| array of struct virtio_media_sg_entry for plane 0 |
++---------------------------------------------------+
+| array of struct virtio_media_sg_entry for plane 1 |
++---------------------------------------------------+
+| array of struct virtio_media_sg_entry for plane 2 |
++===================================================+
+| struct virtio_media_resp_ioctl                    |
++---------------------------------------------------+
+| struct v4l2_buffer                                |
++---------------------------------------------------+
+| struct v4l2_plane for plane 0                     |
+| struct v4l2_plane for plane 1                     |
+| struct v4l2_plane for plane 2                     |
++---------------------------------------------------+
 ```
 
-The device will be able to reassign this data properly by looking at the `size`
-member of each retrieved control, and processing the corresponding amount of
-data from the descriptor chain.
-
-Important note: pointer data does not need to be copied into new buffers to be
-inserted in the descriptor chain. Instead the driver can use chained
-descriptors that point to where the data originally stands. This is especially
-important for `USERPTR` buffers, since the pointed data can be quite large.
-Using chained descriptors as a ad-hoc scatter/gather list prevents costly
-guest/host (and back again) copies. 
-
-A corrolary of this note is that care should be taken to keep the commandq
-large enough to accomodate long descriptor chains, as a single `USERPTR` buffer
-can in the worst case require hundreds of descriptors to be queued.
-
-This side-effect is mitigated by mapping pointers marked as `__user` in V4L2
-only once, in the command section of the descriptor chain, for `WR` ioctl.
-Since the device will write the data in the addresses provided, mentioning
-these twice would be redundant anyway.
+Since the ioctl is `RW`, the payload is repeated in both the device-readable
+and device-writable sections of the descriptor chain, but the device-writable
+section does not include the SG lists to guest memory.
 
 ### Unsupported ioctls
 

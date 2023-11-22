@@ -99,7 +99,8 @@ int scatterlist_filler_retrieve_data(struct virtio_media_session *session,
  * If the shadow buffer is pointed to by @sg, copy its content back into @buffer.
  */
 int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
-				       struct scatterlist **sgs_idx,
+				       struct scatterlist **buffer_sgs,
+				       int num_buffer_sgs,
 				       struct v4l2_buffer *buffer,
 				       size_t num_planes);
 
@@ -110,6 +111,7 @@ int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
  */
 int scatterlist_filler_retrieve_ext_ctrls(struct virtio_media_session *session,
 					  struct scatterlist **sgs_idx,
+					  int num_ctrls_sgs,
 					  struct v4l2_ext_controls *ctrls);
 
 #endif // __VIRTIO_MEDIA_DESCRIPTOR_H

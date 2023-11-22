@@ -16,6 +16,12 @@
  */
 #define VIRTIO_BUF_SIZE 0x4000
 
+struct virtio_media_sg_entry {
+	u64 start;
+	u32 len;
+	u32 __padding;
+};
+
 /**
  * struct virtio_media_buffer - Current state of a given buffer.
  *

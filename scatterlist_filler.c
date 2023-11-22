@@ -163,12 +163,17 @@ int scatterlist_filler_retrieve_data(struct virtio_media_session *session,
 
 /*
  * num_planes if the number of planes in the original buffer provided by user-space.
+ *
+ * @num_buffer_sgs: number of SGs that were used by this buffer. Useful to know
+ * if we have SG lists for USERPTR buffers that we need to free.
  */
 int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
-				       struct scatterlist **sgs_idx,
+				       struct scatterlist **buffer_sgs,
+				       const int num_buffer_sgs,
 				       struct v4l2_buffer *b, size_t num_planes)
 {
 	struct v4l2_plane *planes = NULL;
+	int i = 0;
 	int ret;
 
 	/* Keep data that will be overwritten but that we need to check later */
@@ -176,11 +181,10 @@ int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
 		planes = b->m.planes;
 	}
 
-	ret = scatterlist_filler_retrieve_data(session, *sgs_idx, b,
+	ret = scatterlist_filler_retrieve_data(session, buffer_sgs[i++], b,
 					       sizeof(*b));
 	if (ret)
 		return ret;
-	sgs_idx++;
 
 	if (planes != NULL && num_planes > 0) {
 		b->m.planes = planes;
@@ -188,58 +192,82 @@ int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
 			return -ENOSPC;
 
 		ret = scatterlist_filler_retrieve_data(
-			session, *sgs_idx, b->m.planes,
+			session, buffer_sgs[i++], b->m.planes,
 			sizeof(struct v4l2_plane) * num_planes);
 		if (ret)
 			return ret;
-		sgs_idx++;
 	}
+
+	/* If our buffer is a USERPTR one, a few SG list we need to free may follow. */
+	while (i < num_buffer_sgs)
+		kfree(sg_virt(buffer_sgs[i++]));
 
 	return 0;
 }
 
 int scatterlist_filler_retrieve_ext_ctrls(struct virtio_media_session *session,
-					  struct scatterlist **sgs_idx,
+					  struct scatterlist **ctrls_sgs,
+					  int num_ctrls_sgs,
 					  struct v4l2_ext_controls *ctrls)
 {
 	struct v4l2_ext_control *controls_backup = ctrls->controls;
+	int i = 0;
 	int ret;
 
-	ret = scatterlist_filler_retrieve_data(session, *sgs_idx, ctrls,
+	ret = scatterlist_filler_retrieve_data(session, ctrls_sgs[i++], ctrls,
 					       sizeof(*ctrls));
 	if (ret)
 		return ret;
-	sgs_idx++;
 
 	ctrls->controls = controls_backup;
 
 	if (ctrls->count > 0 && ctrls->controls) {
 		ret = scatterlist_filler_retrieve_data(
-			session, *sgs_idx, ctrls->controls,
+			session, ctrls_sgs[i++], ctrls->controls,
 			sizeof(struct v4l2_ext_control) * ctrls->count);
 		if (ret)
 			return ret;
-		sgs_idx++;
 	}
+
+	/* A few SG list with controls payloads may follow. */
+	while (i < num_ctrls_sgs)
+		kfree(sg_virt(ctrls_sgs[i++]));
 
 	return 0;
 }
 
-static int prepare_userptr_to_host(struct sg_table *sgt, unsigned long userptr,
-				   unsigned long length)
+/**
+ * prepare_userptr_to_host - 
+ *
+ * Returns -EFAULT if `userptr` was not a valid user address, which is a case
+ * the driver should consider as "normal" operation. All other failures signal
+ * a problem with the driver.
+ */
+static int prepare_userptr_to_host(unsigned long userptr, unsigned long length,
+				   struct virtio_media_sg_entry **sg_list,
+				   int *nents)
 {
+	struct sg_table sg_table = {};
 	struct frame_vector *framevec;
+	struct scatterlist *sg_iter;
 	struct page **pages;
 	unsigned int pages_count;
 	unsigned int offset = userptr & ~PAGE_MASK;
+	int i;
 	int ret;
 
 	framevec = vb2_create_framevec(userptr, length, true);
 	if (IS_ERR(framevec)) {
-		printk("error creating frame vector for userptr 0x%lx, length 0x%lx\n",
-		       userptr, length);
+		if (PTR_ERR(framevec) != -EFAULT) {
+			printk("error creating frame vector for userptr 0x%lx, length 0x%lx: %d\n",
+			       userptr, length, PTR_ERR(framevec));
+		} else {
+			/* -EINVAL is expected in case of invalid userptr. */
+			framevec = ERR_PTR(-EINVAL);
+		}
 		return PTR_ERR(framevec);
 	}
+
 	pages = frame_vector_pages(framevec);
 	if (IS_ERR(pages)) {
 		printk("error getting vector pages\n");
@@ -247,12 +275,33 @@ static int prepare_userptr_to_host(struct sg_table *sgt, unsigned long userptr,
 		goto done;
 	}
 	pages_count = frame_vector_count(framevec);
-	ret = sg_alloc_table_from_pages(sgt, pages, pages_count, offset, length,
-					0);
+	/* TODO turn into a SG list directly here and skip the sg table step */
+	ret = sg_alloc_table_from_pages(&sg_table, pages, pages_count, offset,
+					length, 0);
 	if (ret) {
 		printk("error creating sg table\n");
 		goto done;
 	}
+
+	/* 
+	 * Allocate our actual SG list. This will be freed by
+	 * scatterlist_filler_retrieve_(buffer|ext_ctrls).
+	 */
+	*nents = sg_nents(sg_table.sgl);
+	*sg_list = kzalloc(sizeof(**sg_list) * *nents, GFP_KERNEL);
+	if (!*sg_list) {
+		ret = -ENOMEM;
+		goto free_sg;
+	}
+
+	for_each_sgtable_sg(&sg_table, sg_iter, i) {
+		struct virtio_media_sg_entry *sg_entry = &(*sg_list)[i];
+		sg_entry->start = sg_phys(sg_iter);
+		sg_entry->len = sg_iter->length;
+	}
+
+free_sg:
+	sg_free_table(&sg_table);
 
 done:
 	vb2_destroy_framevec(framevec);
@@ -263,43 +312,20 @@ static int scatterlist_filler_add_userptr(struct scatterlist_filler *filler,
 					  unsigned long userptr,
 					  unsigned long length)
 {
-	struct sg_table sg_table = {};
-	struct scatterlist *sg;
 	int ret;
-	int i = 0;
+	int nents;
+	struct virtio_media_sg_entry *sg_list;
 
-	ret = prepare_userptr_to_host(&sg_table, userptr, length);
+	ret = prepare_userptr_to_host(userptr, length, &sg_list, &nents);
 	if (ret)
 		return ret;
 
-	if (filler->cur_desc + sg_table.nents > filler->num_descs) {
-		ret = -ENOSPC;
-		goto done;
-	}
-
-	/* TODO not great, we should keep the SG table and delete it along with the descriptor chain? */
-	/* maybe we can have an array of sg_tables in scatterlist_filler that we free once the ioctl is done? */
-	/* This means for controls/buffers we need to parse once to check how many sg_tables we need? */
-	sg = sg_table.sgl;
-	while (sg) {
-		if (filler->cur_desc >= filler->num_descs)
-			return -ENOSPC;
-
-		filler->descs[filler->cur_desc + i] = *sg;
-		sg = sg_next(sg);
-		i++;
-	}
-
-	ret = scatterlist_filler_add_sg(filler,
-					&filler->descs[filler->cur_desc]);
+	ret = scatterlist_filler_add_data(filler, sg_list,
+					  sizeof(*sg_list) * nents);
 	if (ret)
-		goto done;
+		return ret;
 
-	filler->cur_desc += i;
-
-done:
-	sg_free_table(&sg_table);
-	return ret;
+	return 0;
 }
 
 int scatterlist_filler_add_buffer(struct scatterlist_filler *filler,

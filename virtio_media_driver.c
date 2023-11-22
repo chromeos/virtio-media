@@ -965,11 +965,8 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 
 	/* Command payload (struct v4l2_buffer) */
 	ret = scatterlist_filler_add_buffer(&filler, b, true);
-	if (ret < 0) {
-		v4l2_err(&vv->v4l2_dev,
-			 "failed to prepare command descriptor chain\n");
+	if (ret < 0)
 		return ret;
-	}
 
 	num_cmd_sgs = filler.cur_sg;
 
@@ -980,11 +977,8 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 
 	/* Response payload (same as input, but no userptr mapping) */
 	ret = scatterlist_filler_add_buffer(&filler, b, false);
-	if (ret < 0) {
-		v4l2_err(&vv->v4l2_dev,
-			 "failed to prepare response descriptor chain\n");
+	if (ret < 0)
 		return ret;
-	}
 
 	ret = virtio_media_send_command(
 		vv, filler.sgs, num_cmd_sgs, filler.cur_sg - num_cmd_sgs,
@@ -1005,8 +999,8 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	if (resp_len < sizeof(*b))
 		return -EINVAL;
 
-	ret = scatterlist_filler_retrieve_buffer(session, &sgs[num_cmd_sgs + 1],
-						 b, length_backup);
+	ret = scatterlist_filler_retrieve_buffer(
+		session, &sgs[1], num_cmd_sgs - 1, b, length_backup);
 	if (ret) {
 		v4l2_err(&vv->v4l2_dev,
 			 "failed to retrieve response descriptor chain\n");
@@ -1075,10 +1069,8 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
 
 	/*
 	 * Response payload (same as input but without userptrs)
-	 * TODO ideally that's what we want, but the current device requires the userptrs to be mapped.
-	 * Also it may be a violation of virtio to write into memory that was mapped in the device-readable descriptors?
 	 */
-	ret = scatterlist_filler_add_ext_ctrls(&filler, ctrls, true);
+	ret = scatterlist_filler_add_ext_ctrls(&filler, ctrls, false);
 	if (ret)
 		return ret;
 
@@ -1100,9 +1092,9 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
 	/* Event if we have received an error, we may need to read our payload back */
 	if (ret < 0 && resp_len >= sizeof(struct virtio_media_resp_ioctl) +
 					   sizeof(*ctrls)) {
-		/* Deliberately ignore the error here as we want to return the earliest one */
-		scatterlist_filler_retrieve_ext_ctrls(
-			session, &sgs[num_cmd_sgs + 1], ctrls);
+		/* Deliberately ignore the error here as we want to return the previous one */
+		scatterlist_filler_retrieve_ext_ctrls(session, &sgs[1],
+						      num_cmd_sgs - 1, ctrls);
 		return ret;
 	}
 
@@ -1112,8 +1104,8 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
 	if (resp_len < sizeof(*ctrls))
 		return -EINVAL;
 
-	ret = scatterlist_filler_retrieve_ext_ctrls(
-		session, &sgs[num_cmd_sgs + 1], ctrls);
+	ret = scatterlist_filler_retrieve_ext_ctrls(session, &sgs[1],
+						    num_cmd_sgs - 1, ctrls);
 	if (ret)
 		return ret;
 
@@ -1731,7 +1723,7 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 }
 
 static int virtio_media_enuminput(struct file *file, void *fh,
-				   struct v4l2_input *input)
+				  struct v4l2_input *input)
 {
 	int ret;
 
