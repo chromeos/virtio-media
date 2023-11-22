@@ -1730,7 +1730,7 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 	return 0;
 }
 
-static int virtio_media_enum_input(struct file *file, void *fh,
+static int virtio_media_enuminput(struct file *file, void *fh,
 				   struct v4l2_input *input)
 {
 	int ret;
@@ -2305,7 +2305,7 @@ static const struct v4l2_ioctl_ops virtio_media_ioctl_ops = {
 	.vidioc_querystd = virtio_media_querystd,
 
 	/* Input handling */
-	.vidioc_enum_input = virtio_media_enum_input,
+	.vidioc_enum_input = virtio_media_enuminput,
 	.vidioc_g_input = virtio_media_g_input,
 	.vidioc_s_input = virtio_media_s_input,
 
