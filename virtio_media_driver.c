@@ -23,7 +23,6 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 
-#include "linux/videodev2.h"
 #include "protocol.h"
 #include "session.h"
 #include "scatterlist_filler.h"
