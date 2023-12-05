@@ -259,7 +259,7 @@ static int prepare_userptr_to_host(unsigned long userptr, unsigned long length,
 	framevec = vb2_create_framevec(userptr, length, true);
 	if (IS_ERR(framevec)) {
 		if (PTR_ERR(framevec) != -EFAULT) {
-			printk("error creating frame vector for userptr 0x%lx, length 0x%lx: %d\n",
+			printk("error creating frame vector for userptr 0x%lx, length 0x%lx: %ld\n",
 			       userptr, length, PTR_ERR(framevec));
 		} else {
 			/* -EINVAL is expected in case of invalid userptr. */
