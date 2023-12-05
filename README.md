@@ -36,10 +36,12 @@ which should be used as a companion to this document.
 The driver should be working and supporting most V4L2 features, with the
 exception of the following:
 
-* [Read/Write API](https://www.kernel.org/doc/html/v4.8/media/uapi/v4l/rw.html), which is obsolete and inefficient.
+* [Read/Write
+API](https://www.kernel.org/doc/html/v4.8/media/uapi/v4l/rw.html), which is
+obsolete and inefficient.
 * Overlay interface and associated ioctls, i.e.
-    * `VIDIOC_OVERLAY`
-    * `VIDIOC_G/S_FBUF`
+  * `VIDIOC_OVERLAY`
+  * `VIDIOC_G/S_FBUF`
 * `DMABUF` buffers (this will be supported at least for virtio objects)
 * `VIDIOC_EXPBUF` (to be implemented)
 * `VIDIOC_G/S_EDID` (to be implemented if it makes sense in a virtual context)
@@ -60,7 +62,7 @@ There are two queues in use:
 
 The configuration area contains the following information:
 
-```
+```c
 struct virtio_v4l2_config {
     /// The device_caps field of struct video_device.
     u32 device_caps;
@@ -115,8 +117,8 @@ extracted from the
 header file, which defines the ioctls' codes, type of payload, and direction.
 For instance, the `VIDIOC_G_FMT` ioctl is defined as follows:
 
-```
-#define VIDIOC_G_FMT            _IOWR('V',  4, struct v4l2_format)
+```c
+#define VIDIOC_G_FMT _IOWR('V',  4, struct v4l2_format)
 ```
 
 This tells us that its ioctl code is `4`, that its payload is a `struct
@@ -129,22 +131,22 @@ The payload of an ioctl in the descriptor chain follows the command structure,
 the reponse structure, or both depending on the direction:
 
 * An `_IOR` ioctl is read-only for the driver, meaning the payload follows the
-	response in the device-writable section of the descriptor chain.
+  response in the device-writable section of the descriptor chain.
 * An `_IOW` ioctl is read-only for the device, meaning the payload follows the
-	command in the driver-writable section of the descriptor chain.
+  command in the driver-writable section of the descriptor chain.
 * An `_IORW` ioctl is writable by both the device and driver, meaning the
-	payload must follow both the command in the driver-writable section of the
-	descriptor chain, and the response in the device-writable section.
+  payload must follow both the command in the driver-writable section of the
+  descriptor chain, and the response in the device-writable section.
 
 For instance, the `VIDIOC_G_STD` ioctl is defined as follows:
 
-```
-#define VIDIOC_G_STD		 _IOR('V', 23, v4l2_std_id)
+```c
+#define VIDIOC_G_STD _IOR('V', 23, v4l2_std_id)
 ```
 
 Thus, its layout on the commandq will be:
 
-```
+```text
 +-------------------------------------+
 | struct virtio_media_cmd_ioctl       |
 +=====================================+
@@ -159,13 +161,13 @@ device-readable and device-writable descriptors).
 
 `VIDIOC_SUBSCRIBE_EVENT` is defined as follows:
 
-```
-#define	VIDIOC_SUBSCRIBE_EVENT	 _IOW('V', 90, struct v4l2_event_subscription)
+```c
+#define VIDIOC_SUBSCRIBE_EVENT _IOW('V', 90, struct v4l2_event_subscription)
 ```
 
 Meaning its layout on the commandq will be:
 
-```
+```text
 +-------------------------------------+
 | struct virtio_media_cmd_ioctl       |
 +-------------------------------------+
@@ -177,13 +179,13 @@ Meaning its layout on the commandq will be:
 
 Finally, `VIDIOC_G_FMT` is a `WR` ioctl:
 
-```
-#define VIDIOC_G_FMT            _IOWR('V',  4, struct v4l2_format)
+```c
+#define VIDIOC_G_FMT _IOWR('V',  4, struct v4l2_format)
 ```
 
 Its layout on the commandq will thus be:
 
-```
+```text
 +-------------------------------------+
 | struct virtio_media_cmd_ioctl       |
 +-------------------------------------+
@@ -217,9 +219,9 @@ A few structures used as ioctl payloads contain pointers the link to further
 data needed for the ioctl. There are notably:
 
 * The `planes` pointer of `struct v4l2_buffer`, which size is determined by the
-	`length` member,
+  `length` member,
 * The `controls` pointer of `struct v4l2_ext_controls`, which size is
-	determined by the `count` member.
+  determined by the `count` member.
 
 If the size of the pointed area is determined to be non-zero, then the main
 payload is immediately followed by the pointed data in their order of
@@ -227,7 +229,7 @@ appearance in the structure, and the pointer value itself is ignored by the
 device, which must also return the value initially passed by the driver. For
 instance, for a `struct v4l2_ext_controls` which `count` is `16`:
 
-```
+```text
 +--------------------------------------+
 | struct v4l2_ext_controls             |
 +--------------------------------------+
@@ -241,7 +243,7 @@ instance, for a `struct v4l2_ext_controls` which `count` is `16`:
 Similarly, a multiplanar `struct v4l2_buffer` with its `length` member set to 3
 will be laid out as follows:
 
-```
+```text
 +-------------------------------------+
 | struct v4l2_buffer                  |
 +-------------------------------------+
@@ -277,7 +279,7 @@ and not repeated in the device-writable section, even for `WR` ioctls.
 To illustrate the data layout, here is what the descriptor chain of a
 `VIDIOC_QBUF` ioctl queueing a 3-planar `USERPTR` buffer would look like:
 
-```
+```text
 +---------------------------------------------------+
 | struct virtio_media_cmd_ioctl                     |
 +---------------------------------------------------+
@@ -386,4 +388,3 @@ returned to the guest with the same value as it was provided.
 
 In virtio-media, `DMABUF` buffers are provisioned by a virtio object, just like
 they are by a DMABUF in regular V4L2.
-
