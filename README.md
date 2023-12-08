@@ -48,6 +48,11 @@ obsolete and inefficient.
 * Media API and requests. This will probably be supported in the future behind
   a feature flag.
 
+## Virtio device ID
+
+This device does not have an official ID assigned, so users are free to use
+whatever works for them. By default, ID `0x3b` is used in the driver.
+
 ## Virtqueues
 
 There are two queues in use:
