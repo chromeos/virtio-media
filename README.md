@@ -15,7 +15,7 @@ The host is therefore responsible for presenting a virtual device that behaves
 like an actual V4L2 device, which the guest can control.
 
 This repository includes a simple guest Linux kernel module supporting this
-protocol. On the host side, devices can be implemented by several ways:
+protocol. On the host side, devices can be implemented in several ways:
 
 1. By forwarding a V4L2 device from the host into a guest. This works if the
    device is already supported by V4L2 on the host.
@@ -29,7 +29,7 @@ and both sides are free to convert it from/to any model that they wish to use.
 The complete definition of V4L2 structures and ioctls can be found under the
 [V4L2 UAPI
 documentation](https://www.kernel.org/doc/html/latest/userspace-api/media/index.html),
-which should be used as a companion to this document.
+which should be referred to alongside this document.
 
 ## Driver status
 
