@@ -131,6 +131,9 @@ This tells us that its ioctl code is `4`, that its payload is a `struct
 v4l2_format`, and that its direction is `WR`, i.e. the payload is written by
 both the driver and the device.
 
+The payload layout is always a 64-bit representation of the corresponding V4L2
+structure, irrespective of the host and guest architecture.
+
 ### Ioctls payload
 
 The payload of an ioctl in the descriptor chain follows the command structure,
