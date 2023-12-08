@@ -42,7 +42,8 @@ obsolete and inefficient.
 * Overlay interface and associated ioctls, i.e.
   * `VIDIOC_OVERLAY`
   * `VIDIOC_G/S_FBUF`
-* `DMABUF` buffers (this will be supported at least for virtio objects)
+* `DMABUF` buffers (this will be supported at least for virtio objects, other
+  kinds of DMABUFs may or may not be usable)
 * `VIDIOC_EXPBUF` (to be implemented)
 * `VIDIOC_G/S_EDID` (to be implemented if it makes sense in a virtual context)
 * Media API and requests. This will probably be supported in the future behind
@@ -392,4 +393,49 @@ returned to the guest with the same value as it was provided.
 ### DMABUF
 
 In virtio-media, `DMABUF` buffers are provisioned by a virtio object, just like
-they are by a DMABUF in regular V4L2.
+they are by a DMABUF in regular V4L2. Virtio objects are 16-bytes UUIDs and do
+not fit in the placeholders for file descriptors, so they follow their
+embedding data structure as needed and the device must leave the V4L2 structure
+placeholder unchanged. For instance, a 3-planar `struct v4l2_buffer` with the
+`V4L2_MEMORY_DMABUF` memory type will have the following layout:
+
+```text
++-------------------------------------+
+| struct v4l2_buffer                  |
++-------------------------------------+
+| struct v4l2_plane for plane 0       |
+| struct v4l2_plane for plane 1       |
+| struct v4l2_plane for plane 2       |
++-------------------------------------+
+| 16 byte UUID for plane 0            |
++-------------------------------------+
+| 16 byte UUID for plane 1            |
++-------------------------------------+
+| 16 byte UUID for plane 2            |
++-------------------------------------+
+```
+
+Contrary to `USERPTR` buffers, virtio objects UUIDs need to be added in both
+the device-readable and device-writable section of the descriptor chain.
+
+Host-allocated buffers with the `V4L2_MEMORY_MMAP` memory type can also be
+exported as virtio objects for use with another virtio device using the
+`VIDIOC_EXPBUF` ioctl. The `fd` placefolder of `v4l2_exportbuffer` means that
+space for the UUID needs to be reserved right after that structure, so the
+ioctl layout will looks as follows:
+
+```text
++-------------------------------------+
+| struct virtio_media_cmd_ioctl       |
++-------------------------------------+
+| struct v4l2_exportbuffer            |
++-------------------------------------+
+| 16 bytes UUID for exported buffer   |
++=====================================+
+| struct virtio_media_resp_ioctl      |
++-------------------------------------+
+| struct v4l2_exportbuffer            |
++-------------------------------------+
+| 16 bytes UUID for exported buffer   |
++-------------------------------------+
+```
