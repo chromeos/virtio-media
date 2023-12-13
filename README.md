@@ -327,8 +327,6 @@ for an unknown ioctl, i.e. `ENOTTY`.
 * `VIDIOC_QUERYCAP` is replaced by reading the configuration area.
 * `VIDIOC_DQBUF` is replaced by a dedicated event.
 * `VIDIOC_DQEVENT` is replaced by a dedicated event.
-* `VIDIOC_G_CTRL` and `VIDIOC_S_CTRL` are implemented using
-  `VIDIOC_G_EXT_CTRLS` and `VIDIOC_S_EXT_CTRLS` respectively.
 * `VIDIOC_G_JPEGCOMP` and `VIDIOC_S_JPEGCOMP` are deprecated and replaced by
   the controls of the JPEG class.
 * `VIDIOC_LOG_STATUS` is a guest-only operation and shall not be implemented by

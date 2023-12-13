@@ -1267,6 +1267,34 @@ static int virtio_media_queryctrl(struct file *file, void *fh,
 	return 0;
 }
 
+static int virtio_media_g_ctrl(struct file *file, void *fh,
+			       struct v4l2_control *ctrl)
+{
+	int ret;
+
+	ret = virtio_media_send_wr_ioctl(fh,
+					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_CTRL),
+					 ctrl, sizeof(*ctrl), sizeof(*ctrl));
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int virtio_media_s_ctrl(struct file *file, void *fh,
+			       struct v4l2_control *ctrl)
+{
+	int ret;
+
+	ret = virtio_media_send_wr_ioctl(fh,
+					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_CTRL),
+					 ctrl, sizeof(*ctrl), sizeof(*ctrl));
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
 static int virtio_media_query_ext_ctrl(struct file *file, void *fh,
 				       struct v4l2_query_ext_ctrl *ctrl)
 {
@@ -2308,10 +2336,8 @@ static const struct v4l2_ioctl_ops virtio_media_ioctl_ops = {
 	/* Control handling */
 	.vidioc_queryctrl = virtio_media_queryctrl,
 	.vidioc_query_ext_ctrl = virtio_media_query_ext_ctrl,
-	/* covered by vidio_g_ext_ctrls */
-	.vidioc_g_ctrl = NULL,
-	/* covered by vidio_g_ext_ctrls */
-	.vidioc_s_ctrl = NULL,
+	.vidioc_g_ctrl = virtio_media_g_ctrl,
+	.vidioc_s_ctrl = virtio_media_s_ctrl,
 	.vidioc_g_ext_ctrls = virtio_media_g_ext_ctrls,
 	.vidioc_s_ext_ctrls = virtio_media_s_ext_ctrls,
 	.vidioc_try_ext_ctrls = virtio_media_try_ext_ctrls,
