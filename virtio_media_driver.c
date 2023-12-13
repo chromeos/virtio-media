@@ -923,6 +923,42 @@ static int virtio_media_send_wr_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	return 0;
 }
 
+/*
+ * Macro suitable for defining WR ioctls where a constant size payload is sent to and received from the host.
+ */
+#define SIMPLE_WR_IOCTL(name, ioctl, type)                           \
+	static int virtio_media_##name(struct file *file, void *fh,  \
+				       type *payload)                \
+	{                                                            \
+		return virtio_media_send_wr_ioctl(                   \
+			fh, VIRTIO_MEDIA_IOCTL_CODE(ioctl), payload, \
+			sizeof(*payload), sizeof(*payload));         \
+	}
+
+/*
+ * Macro suitable for defining R ioctls where a constant size payload is received from the host.
+ */
+#define SIMPLE_R_IOCTL(name, ioctl, type)                            \
+	static int virtio_media_##name(struct file *file, void *fh,  \
+				       type *payload)                \
+	{                                                            \
+		return virtio_media_send_r_ioctl(                    \
+			fh, VIRTIO_MEDIA_IOCTL_CODE(ioctl), payload, \
+			sizeof(*payload));                           \
+	}
+
+/*
+ * Macro suitable for defining W ioctls where a constant size payload is sent to the host.
+ */
+#define SIMPLE_W_IOCTL(name, ioctl, type)                            \
+	static int virtio_media_##name(struct file *file, void *fh,  \
+				       type *payload)                \
+	{                                                            \
+		return virtio_media_send_w_ioctl(                    \
+			fh, VIRTIO_MEDIA_IOCTL_CODE(ioctl), payload, \
+			sizeof(*payload));                           \
+	}
+
 static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 					  struct v4l2_buffer *b)
 {
@@ -1167,147 +1203,61 @@ static int virtio_media_querycap(struct file *file, void *fh,
 	return 0;
 }
 
-static int virtio_media_enum_fmt(struct file *file, void *fh,
-				 struct v4l2_fmtdesc *fmt_desc)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUM_FMT), fmt_desc,
-		sizeof(*fmt_desc), sizeof(*fmt_desc));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_enum_framesizes(struct file *file, void *fh,
-					struct v4l2_frmsizeenum *fsize)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUM_FRAMESIZES), fsize,
-		sizeof(*fsize), sizeof(*fsize));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_enum_frameintervals(struct file *file, void *fh,
-					    struct v4l2_frmivalenum *fival)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUM_FRAMEINTERVALS), fival,
-		sizeof(*fival), sizeof(*fival));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_fmt(struct file *file, void *fh,
-			      struct v4l2_format *format)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(fh,
-					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_FMT),
-					 format, sizeof(*format),
-					 sizeof(*format));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_try_fmt(struct file *file, void *fh,
-				struct v4l2_format *format)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_TRY_FMT), format,
-		sizeof(*format), sizeof(*format));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_fmt(struct file *file, void *fh,
-			      struct v4l2_format *format)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(fh,
-					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_FMT),
-					 format, sizeof(*format),
-					 sizeof(*format));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_queryctrl(struct file *file, void *fh,
-				  struct v4l2_queryctrl *ctrl)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_QUERYCTRL), ctrl,
-		sizeof(*ctrl), sizeof(*ctrl));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_ctrl(struct file *file, void *fh,
-			       struct v4l2_control *ctrl)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(fh,
-					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_CTRL),
-					 ctrl, sizeof(*ctrl), sizeof(*ctrl));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_ctrl(struct file *file, void *fh,
-			       struct v4l2_control *ctrl)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(fh,
-					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_CTRL),
-					 ctrl, sizeof(*ctrl), sizeof(*ctrl));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_query_ext_ctrl(struct file *file, void *fh,
-				       struct v4l2_query_ext_ctrl *ctrl)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_QUERY_EXT_CTRL), ctrl,
-		sizeof(*ctrl), sizeof(*ctrl));
-	if (ret)
-		return ret;
-
-	return 0;
-}
+SIMPLE_WR_IOCTL(enum_fmt, VIDIOC_ENUM_FMT, struct v4l2_fmtdesc)
+SIMPLE_WR_IOCTL(g_fmt, VIDIOC_G_FMT, struct v4l2_format)
+SIMPLE_WR_IOCTL(s_fmt, VIDIOC_S_FMT, struct v4l2_format)
+SIMPLE_WR_IOCTL(try_fmt, VIDIOC_TRY_FMT, struct v4l2_format)
+SIMPLE_WR_IOCTL(enum_framesizes, VIDIOC_ENUM_FRAMESIZES,
+		struct v4l2_frmsizeenum)
+SIMPLE_WR_IOCTL(enum_frameintervals, VIDIOC_ENUM_FRAMEINTERVALS,
+		struct v4l2_frmivalenum)
+SIMPLE_WR_IOCTL(queryctrl, VIDIOC_QUERYCTRL, struct v4l2_queryctrl)
+SIMPLE_WR_IOCTL(g_ctrl, VIDIOC_G_CTRL, struct v4l2_control)
+SIMPLE_WR_IOCTL(s_ctrl, VIDIOC_S_CTRL, struct v4l2_control)
+SIMPLE_WR_IOCTL(query_ext_ctrl, VIDIOC_QUERY_EXT_CTRL,
+		struct v4l2_query_ext_ctrl)
+SIMPLE_WR_IOCTL(s_dv_timings, VIDIOC_S_DV_TIMINGS, struct v4l2_dv_timings)
+SIMPLE_WR_IOCTL(g_dv_timings, VIDIOC_G_DV_TIMINGS, struct v4l2_dv_timings)
+SIMPLE_R_IOCTL(query_dv_timings, VIDIOC_QUERY_DV_TIMINGS,
+	       struct v4l2_dv_timings)
+SIMPLE_WR_IOCTL(enum_dv_timings, VIDIOC_ENUM_DV_TIMINGS,
+		struct v4l2_enum_dv_timings)
+SIMPLE_WR_IOCTL(dv_timings_cap, VIDIOC_DV_TIMINGS_CAP,
+		struct v4l2_dv_timings_cap)
+SIMPLE_WR_IOCTL(enuminput, VIDIOC_ENUMINPUT, struct v4l2_input)
+SIMPLE_WR_IOCTL(querymenu, VIDIOC_QUERYMENU, struct v4l2_querymenu)
+SIMPLE_WR_IOCTL(enumoutput, VIDIOC_ENUMOUTPUT, struct v4l2_output)
+SIMPLE_WR_IOCTL(enumaudio, VIDIOC_ENUMAUDIO, struct v4l2_audio)
+SIMPLE_R_IOCTL(g_audio, VIDIOC_G_AUDIO, struct v4l2_audio)
+SIMPLE_W_IOCTL(s_audio, VIDIOC_S_AUDIO, const struct v4l2_audio)
+SIMPLE_WR_IOCTL(enumaudout, VIDIOC_ENUMAUDOUT, struct v4l2_audioout)
+SIMPLE_R_IOCTL(g_audout, VIDIOC_G_AUDOUT, struct v4l2_audioout)
+SIMPLE_W_IOCTL(s_audout, VIDIOC_S_AUDOUT, const struct v4l2_audioout)
+SIMPLE_WR_IOCTL(g_modulator, VIDIOC_G_MODULATOR, struct v4l2_modulator)
+SIMPLE_W_IOCTL(s_modulator, VIDIOC_S_MODULATOR, const struct v4l2_modulator)
+SIMPLE_WR_IOCTL(g_selection, VIDIOC_G_SELECTION, struct v4l2_selection)
+SIMPLE_WR_IOCTL(s_selection, VIDIOC_S_SELECTION, struct v4l2_selection)
+SIMPLE_R_IOCTL(g_enc_index, VIDIOC_G_ENC_INDEX, struct v4l2_enc_idx)
+SIMPLE_WR_IOCTL(encoder_cmd, VIDIOC_ENCODER_CMD, struct v4l2_encoder_cmd)
+SIMPLE_WR_IOCTL(try_encoder_cmd, VIDIOC_TRY_ENCODER_CMD,
+		struct v4l2_encoder_cmd)
+SIMPLE_WR_IOCTL(try_decoder_cmd, VIDIOC_TRY_DECODER_CMD,
+		struct v4l2_decoder_cmd)
+SIMPLE_WR_IOCTL(g_parm, VIDIOC_G_PARM, struct v4l2_streamparm)
+SIMPLE_WR_IOCTL(s_parm, VIDIOC_S_PARM, struct v4l2_streamparm)
+SIMPLE_R_IOCTL(g_std, VIDIOC_G_STD, v4l2_std_id)
+SIMPLE_R_IOCTL(querystd, VIDIOC_QUERYSTD, v4l2_std_id)
+SIMPLE_WR_IOCTL(enumstd, VIDIOC_ENUMSTD, struct v4l2_standard)
+SIMPLE_WR_IOCTL(g_tuner, VIDIOC_G_TUNER, struct v4l2_tuner)
+SIMPLE_W_IOCTL(s_tuner, VIDIOC_S_TUNER, const struct v4l2_tuner)
+SIMPLE_WR_IOCTL(g_frequency, VIDIOC_G_FREQUENCY, struct v4l2_frequency)
+SIMPLE_W_IOCTL(s_frequency, VIDIOC_S_FREQUENCY, const struct v4l2_frequency)
+SIMPLE_WR_IOCTL(enum_freq_bands, VIDIOC_ENUM_FREQ_BANDS,
+		struct v4l2_frequency_band)
+SIMPLE_WR_IOCTL(g_sliced_vbi_cap, VIDIOC_G_SLICED_VBI_CAP,
+		struct v4l2_sliced_vbi_cap)
+SIMPLE_W_IOCTL(s_hw_freq_seek, VIDIOC_S_HW_FREQ_SEEK,
+	       const struct v4l2_hw_freq_seek)
 
 static int virtio_media_g_ext_ctrls(struct file *file, void *fh,
 				    struct v4l2_ext_controls *ctrls)
@@ -1342,76 +1292,6 @@ static int virtio_media_try_ext_ctrls(struct file *file, void *fh,
 
 	ret = virtio_media_send_ext_controls_ioctl(
 		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_TRY_EXT_CTRLS), ctrls);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_dv_timings(struct file *file, void *fh,
-				     struct v4l2_dv_timings *timings)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_DV_TIMINGS), timings,
-		sizeof(*timings), sizeof(*timings));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_dv_timings(struct file *file, void *fh,
-				     struct v4l2_dv_timings *timings)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_DV_TIMINGS), timings,
-		sizeof(*timings), sizeof(*timings));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_query_dv_timings(struct file *file, void *fh,
-					 struct v4l2_dv_timings *timings)
-{
-	int ret;
-
-	ret = virtio_media_send_r_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_QUERY_DV_TIMINGS), timings,
-		sizeof(*timings));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_enum_dv_timings(struct file *file, void *fh,
-					struct v4l2_enum_dv_timings *timings)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUM_DV_TIMINGS), timings,
-		sizeof(*timings), sizeof(*timings));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_dv_timings_cap(struct file *file, void *fh,
-				       struct v4l2_dv_timings_cap *timings)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_DV_TIMINGS_CAP), timings,
-		sizeof(*timings), sizeof(*timings));
 	if (ret)
 		return ret;
 
@@ -1749,20 +1629,7 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 	return 0;
 }
 
-static int virtio_media_enuminput(struct file *file, void *fh,
-				  struct v4l2_input *input)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUMINPUT), input,
-		sizeof(*input), sizeof(*input));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
+// We are not using SIMPLE_WR_IOCTL as the unsigned int parameter is of undertain size.
 static int virtio_media_g_input(struct file *file, void *fh, unsigned int *i)
 {
 	u32 input;
@@ -1779,48 +1646,17 @@ static int virtio_media_g_input(struct file *file, void *fh, unsigned int *i)
 	return 0;
 }
 
-static int virtio_media_querymenu(struct file *file, void *fh,
-				  struct v4l2_querymenu *m)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_QUERYMENU), m, sizeof(*m),
-		sizeof(*m));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
+// We are not using SIMPLE_WR_IOCTL as the unsigned int parameter is of undertain size.
 static int virtio_media_s_input(struct file *file, void *fh, unsigned int i)
 {
 	u32 input = i;
-	int ret;
 
-	ret = virtio_media_send_wr_ioctl(
+	return virtio_media_send_wr_ioctl(
 		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_INPUT), &input,
 		sizeof(input), sizeof(input));
-	if (ret)
-		return ret;
-
-	return 0;
 }
 
-static int virtio_media_enum_output(struct file *file, void *fh,
-				    struct v4l2_output *output)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUMOUTPUT), output,
-		sizeof(*output), sizeof(*output));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
+// We are not using SIMPLE_WR_IOCTL as the unsigned int parameter is of undertain size.
 static int virtio_media_g_output(struct file *file, void *fh, unsigned int *o)
 {
 	u32 output;
@@ -1837,194 +1673,14 @@ static int virtio_media_g_output(struct file *file, void *fh, unsigned int *o)
 	return 0;
 }
 
+// We are not using SIMPLE_WR_IOCTL as the unsigned int parameter is of undertain size.
 static int virtio_media_s_output(struct file *file, void *fh, unsigned int o)
 {
 	u32 output = o;
-	int ret;
 
-	ret = virtio_media_send_wr_ioctl(
+	return virtio_media_send_wr_ioctl(
 		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_OUTPUT), &output,
 		sizeof(output), sizeof(output));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_enumaudio(struct file *file, void *fh,
-				  struct v4l2_audio *a)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUMAUDIO), a, sizeof(*a),
-		sizeof(*a));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_audio(struct file *file, void *fh,
-				struct v4l2_audio *a)
-{
-	int ret;
-
-	ret = virtio_media_send_r_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_AUDIO), a, sizeof(*a));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_audio(struct file *file, void *fh,
-				const struct v4l2_audio *a)
-{
-	int ret;
-
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_AUDIO), a, sizeof(*a));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_enumaudout(struct file *file, void *fh,
-				   struct v4l2_audioout *a)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUMAUDOUT), a, sizeof(*a),
-		sizeof(*a));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_audout(struct file *file, void *fh,
-				 struct v4l2_audioout *a)
-{
-	int ret;
-
-	ret = virtio_media_send_r_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_AUDOUT), a, sizeof(*a));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_audout(struct file *file, void *fh,
-				 const struct v4l2_audioout *a)
-{
-	int ret;
-
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_AUDOUT), a, sizeof(*a));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_modulator(struct file *file, void *fh,
-				    struct v4l2_modulator *m)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_MODULATOR), m, sizeof(*m),
-		sizeof(*m));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_modulator(struct file *file, void *fh,
-				    const struct v4l2_modulator *m)
-{
-	int ret;
-
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_MODULATOR), m, sizeof(*m));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_selection(struct file *file, void *fh,
-				    struct v4l2_selection *s)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_SELECTION), s, sizeof(*s),
-		sizeof(*s));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_selection(struct file *file, void *fh,
-				    struct v4l2_selection *s)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_SELECTION), s, sizeof(*s),
-		sizeof(*s));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_enc_index(struct file *file, void *fh,
-				    struct v4l2_enc_idx *i)
-{
-	int ret;
-
-	ret = virtio_media_send_r_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_ENC_INDEX), i, sizeof(*i));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_encoder_cmd(struct file *file, void *fh,
-				    struct v4l2_encoder_cmd *cmd)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENCODER_CMD), cmd,
-		sizeof(*cmd), sizeof(*cmd));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_try_encoder_cmd(struct file *file, void *fh,
-					struct v4l2_encoder_cmd *cmd)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_TRY_ENCODER_CMD), cmd,
-		sizeof(*cmd), sizeof(*cmd));
-	if (ret)
-		return ret;
-
-	return 0;
 }
 
 static int virtio_media_decoder_cmd(struct file *file, void *fh,
@@ -2050,188 +1706,12 @@ static int virtio_media_decoder_cmd(struct file *file, void *fh,
 	return 0;
 }
 
-static int virtio_media_try_decoder_cmd(struct file *file, void *fh,
-					struct v4l2_decoder_cmd *cmd)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_TRY_DECODER_CMD), cmd,
-		sizeof(*cmd), sizeof(*cmd));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_parm(struct file *file, void *fh,
-			       struct v4l2_streamparm *p)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(fh,
-					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_PARM),
-					 p, sizeof(*p), sizeof(*p));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_parm(struct file *file, void *fh,
-			       struct v4l2_streamparm *p)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(fh,
-					 VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_PARM),
-					 p, sizeof(*p), sizeof(*p));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_std(struct file *file, void *fh, v4l2_std_id *s)
-{
-	int ret;
-
-	ret = virtio_media_send_r_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_STD), s, sizeof(*s));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
 static int virtio_media_s_std(struct file *file, void *fh, v4l2_std_id s)
 {
 	int ret;
 
 	ret = virtio_media_send_w_ioctl(
 		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_STD), &s, sizeof(s));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_querystd(struct file *file, void *fh, v4l2_std_id *s)
-{
-	int ret;
-
-	ret = virtio_media_send_r_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_QUERYSTD), s, sizeof(*s));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_enumstd(struct file *file, void *fh,
-				struct v4l2_standard *s)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUMSTD), s, sizeof(*s),
-		sizeof(*s));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_tuner(struct file *file, void *fh,
-				struct v4l2_tuner *t)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_TUNER), t, sizeof(*t),
-		sizeof(*t));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_tuner(struct file *file, void *fh,
-				const struct v4l2_tuner *t)
-{
-	int ret;
-
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_TUNER), t, sizeof(*t));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_frequency(struct file *file, void *fh,
-				    struct v4l2_frequency *f)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_FREQUENCY), f, sizeof(*f),
-		sizeof(*f));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_frequency(struct file *file, void *fh,
-				    const struct v4l2_frequency *f)
-{
-	int ret;
-
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_FREQUENCY), f, sizeof(*f));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_enum_freq_bands(struct file *file, void *fh,
-					struct v4l2_frequency_band *f)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_ENUM_FREQ_BANDS), f,
-		sizeof(*f), sizeof(*f));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_g_sliced_vbi_cap(struct file *file, void *fh,
-					 struct v4l2_sliced_vbi_cap *c)
-{
-	int ret;
-
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_SLICED_VBI_CAP), c,
-		sizeof(*c), sizeof(*c));
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int virtio_media_s_hw_freq_seek(struct file *file, void *fh,
-				       const struct v4l2_hw_freq_seek *s)
-{
-	int ret;
-
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_HW_FREQ_SEEK), s,
-		sizeof(*s));
 	if (ret)
 		return ret;
 
@@ -2329,7 +1809,7 @@ static const struct v4l2_ioctl_ops virtio_media_ioctl_ops = {
 	.vidioc_s_input = virtio_media_s_input,
 
 	/* Output handling */
-	.vidioc_enum_output = virtio_media_enum_output,
+	.vidioc_enum_output = virtio_media_enumoutput,
 	.vidioc_g_output = virtio_media_g_output,
 	.vidioc_s_output = virtio_media_s_output,
 
