@@ -15,6 +15,9 @@
 static bool always_use_shadow_buffer = false;
 module_param(always_use_shadow_buffer, bool, 0660);
 
+/* Convert a V4L2 IOCTL into the IOCTL code we can give to the host */
+#define VIRTIO_MEDIA_IOCTL_CODE(IOCTL) ((IOCTL >> _IOC_NRSHIFT) & _IOC_NRMASK)
+
 int scatterlist_filler_add_sg(struct scatterlist_filler *filler,
 			      struct scatterlist *sg)
 {
@@ -121,7 +124,7 @@ int scatterlist_filler_add_ioctl_cmd(struct scatterlist_filler *filler,
 
 	cmd_ioctl->hdr.cmd = VIRTIO_MEDIA_CMD_IOCTL;
 	cmd_ioctl->session_id = session->id;
-	cmd_ioctl->code = ioctl_code;
+	cmd_ioctl->code = VIRTIO_MEDIA_IOCTL_CODE(ioctl_code);
 
 	return scatterlist_filler_add_data(filler, cmd_ioctl,
 					   sizeof(*cmd_ioctl));

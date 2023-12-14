@@ -7,16 +7,13 @@
 #include "scatterlist_filler.h"
 #include "virtio_media.h"
 
-/* Convert a V4L2 IOCTL into the IOCTL code we can give to the host */
-#define VIRTIO_MEDIA_IOCTL_CODE(IOCTL) ((IOCTL >> _IOC_NRSHIFT) & _IOC_NRMASK)
-
 /**
  * Send an ioctl that has no driver payload, but expects a reponse from the host (i.e. an
  * ioctl specified with _IOR).
  *
  * Returns 0 in case of success, or a negative error code.
  */
-static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
+static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl,
 				     const void *ioctl_data,
 				     size_t ioctl_data_len)
 {
@@ -38,7 +35,7 @@ static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	int ret;
 
 	/* Command descriptor */
-	ret = scatterlist_filler_add_ioctl_cmd(&filler, session, ioctl_code);
+	ret = scatterlist_filler_add_ioctl_cmd(&filler, session, ioctl);
 	if (ret)
 		return ret;
 
@@ -70,7 +67,7 @@ static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
  *
  * Returns 0 in case of success, or a negative error code.
  */
-static int virtio_media_send_w_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
+static int virtio_media_send_w_ioctl(struct v4l2_fh *fh, u32 ioctl,
 				     const void *ioctl_data,
 				     size_t ioctl_data_len)
 {
@@ -92,7 +89,7 @@ static int virtio_media_send_w_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	int ret;
 
 	/* Command descriptor */
-	ret = scatterlist_filler_add_ioctl_cmd(&filler, session, ioctl_code);
+	ret = scatterlist_filler_add_ioctl_cmd(&filler, session, ioctl);
 	if (ret)
 		return ret;
 
@@ -131,7 +128,7 @@ static int virtio_media_send_w_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
  *
  * Returns 0 in case of success, or a negative error code.
  */
-static int virtio_media_send_wr_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
+static int virtio_media_send_wr_ioctl(struct v4l2_fh *fh, u32 ioctl,
 				      void *ioctl_data, size_t ioctl_data_len,
 				      size_t min_resp_payload)
 {
@@ -153,7 +150,7 @@ static int virtio_media_send_wr_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	int ret;
 
 	/* Command descriptor */
-	ret = scatterlist_filler_add_ioctl_cmd(&filler, session, ioctl_code);
+	ret = scatterlist_filler_add_ioctl_cmd(&filler, session, ioctl);
 	if (ret)
 		return ret;
 
@@ -412,29 +409,27 @@ static void virtio_media_clear_queue(struct virtio_media *vv,
  * Macros suitable for defining ioctls with a constant size payload.
  */
 
-#define SIMPLE_WR_IOCTL(name, ioctl, type)                           \
-	static int virtio_media_##name(struct file *file, void *fh,  \
-				       type *payload)                \
-	{                                                            \
-		return virtio_media_send_wr_ioctl(                   \
-			fh, VIRTIO_MEDIA_IOCTL_CODE(ioctl), payload, \
-			sizeof(*payload), sizeof(*payload));         \
+#define SIMPLE_WR_IOCTL(name, ioctl, type)                            \
+	static int virtio_media_##name(struct file *file, void *fh,   \
+				       type *payload)                 \
+	{                                                             \
+		return virtio_media_send_wr_ioctl(fh, ioctl, payload, \
+						  sizeof(*payload),   \
+						  sizeof(*payload));  \
 	}
 #define SIMPLE_R_IOCTL(name, ioctl, type)                            \
 	static int virtio_media_##name(struct file *file, void *fh,  \
 				       type *payload)                \
 	{                                                            \
-		return virtio_media_send_r_ioctl(                    \
-			fh, VIRTIO_MEDIA_IOCTL_CODE(ioctl), payload, \
-			sizeof(*payload));                           \
+		return virtio_media_send_r_ioctl(fh, ioctl, payload, \
+						 sizeof(*payload));  \
 	}
 #define SIMPLE_W_IOCTL(name, ioctl, type)                            \
 	static int virtio_media_##name(struct file *file, void *fh,  \
 				       type *payload)                \
 	{                                                            \
-		return virtio_media_send_w_ioctl(                    \
-			fh, VIRTIO_MEDIA_IOCTL_CODE(ioctl), payload, \
-			sizeof(*payload));                           \
+		return virtio_media_send_w_ioctl(fh, ioctl, payload, \
+						 sizeof(*payload));  \
 	}
 
 /*
@@ -536,22 +531,22 @@ static int virtio_media_querycap(struct file *file, void *fh,
 static int virtio_media_g_ext_ctrls(struct file *file, void *fh,
 				    struct v4l2_ext_controls *ctrls)
 {
-	return virtio_media_send_ext_controls_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_EXT_CTRLS), ctrls);
+	return virtio_media_send_ext_controls_ioctl(fh, VIDIOC_G_EXT_CTRLS,
+						    ctrls);
 }
 
 static int virtio_media_s_ext_ctrls(struct file *file, void *fh,
 				    struct v4l2_ext_controls *ctrls)
 {
-	return virtio_media_send_ext_controls_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_EXT_CTRLS), ctrls);
+	return virtio_media_send_ext_controls_ioctl(fh, VIDIOC_S_EXT_CTRLS,
+						    ctrls);
 }
 
 static int virtio_media_try_ext_ctrls(struct file *file, void *fh,
 				      struct v4l2_ext_controls *ctrls)
 {
-	return virtio_media_send_ext_controls_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_TRY_EXT_CTRLS), ctrls);
+	return virtio_media_send_ext_controls_ioctl(fh, VIDIOC_TRY_EXT_CTRLS,
+						    ctrls);
 }
 
 /*
@@ -579,9 +574,8 @@ virtio_media_subscribe_event(struct v4l2_fh *fh,
 		return ret;
 
 	/* Then ask the host to signal us these events. */
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_SUBSCRIBE_EVENT), sub,
-		sizeof(*sub));
+	ret = virtio_media_send_w_ioctl(fh, VIDIOC_SUBSCRIBE_EVENT, sub,
+					sizeof(*sub));
 	if (ret < 0) {
 		v4l2_event_unsubscribe(fh, sub);
 		return ret;
@@ -604,9 +598,8 @@ virtio_media_unsubscribe_event(struct v4l2_fh *fh,
 {
 	int ret;
 
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_UNSUBSCRIBE_EVENT), sub,
-		sizeof(*sub));
+	ret = virtio_media_send_w_ioctl(fh, VIDIOC_UNSUBSCRIBE_EVENT, sub,
+					sizeof(*sub));
 	if (ret < 0)
 		return ret;
 
@@ -634,8 +627,7 @@ static int virtio_media_streamon(struct file *file, void *fh,
 		return -EINVAL;
 	}
 
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_STREAMON), &i, sizeof(i));
+	ret = virtio_media_send_w_ioctl(fh, VIDIOC_STREAMON, &i, sizeof(i));
 	if (ret < 0)
 		return ret;
 
@@ -657,8 +649,7 @@ static int virtio_media_streamoff(struct file *file, void *fh,
 		return -EINVAL;
 	}
 
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_STREAMOFF), &i, sizeof(i));
+	ret = virtio_media_send_w_ioctl(fh, VIDIOC_STREAMOFF, &i, sizeof(i));
 	if (ret < 0)
 		return ret;
 
@@ -685,9 +676,8 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 		return -EINVAL;
 	}
 
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_REQBUFS), b, sizeof(*b),
-		sizeof(*b));
+	ret = virtio_media_send_wr_ioctl(fh, VIDIOC_REQBUFS, b, sizeof(*b),
+					 sizeof(*b));
 	if (ret)
 		return ret;
 
@@ -728,8 +718,7 @@ static int virtio_media_querybuf(struct file *file, void *fh,
 {
 	int ret;
 
-	ret = virtio_media_send_buffer_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_QUERYBUF), b);
+	ret = virtio_media_send_buffer_ioctl(fh, VIDIOC_QUERYBUF, b);
 	if (ret)
 		return ret;
 
@@ -754,9 +743,8 @@ static int virtio_media_create_bufs(struct file *file, void *fh,
 
 	queue = &session->queues[type];
 
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_CREATE_BUFS), b, sizeof(*b),
-		sizeof(*b));
+	ret = virtio_media_send_wr_ioctl(fh, VIDIOC_CREATE_BUFS, b, sizeof(*b),
+					 sizeof(*b));
 	if (ret)
 		return ret;
 
@@ -787,8 +775,7 @@ static int virtio_media_prepare_buf(struct file *file, void *fh,
 {
 	int ret;
 
-	ret = virtio_media_send_buffer_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_PREPARE_BUF), b);
+	ret = virtio_media_send_buffer_ioctl(fh, VIDIOC_PREPARE_BUF, b);
 	if (ret)
 		return ret;
 
@@ -804,8 +791,7 @@ static int virtio_media_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 	struct virtio_media_buffer *buffer;
 	int ret;
 
-	ret = virtio_media_send_buffer_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_QBUF), b);
+	ret = virtio_media_send_buffer_ioctl(fh, VIDIOC_QBUF, b);
 	if (ret)
 		return ret;
 
@@ -907,9 +893,8 @@ static int virtio_media_g_input(struct file *file, void *fh, unsigned int *i)
 	u32 input;
 	int ret;
 
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_INPUT), &input,
-		sizeof(input), sizeof(input));
+	ret = virtio_media_send_wr_ioctl(fh, VIDIOC_G_INPUT, &input,
+					 sizeof(input), sizeof(input));
 	if (ret)
 		return ret;
 
@@ -922,9 +907,8 @@ static int virtio_media_s_input(struct file *file, void *fh, unsigned int i)
 {
 	u32 input = i;
 
-	return virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_INPUT), &input,
-		sizeof(input), sizeof(input));
+	return virtio_media_send_wr_ioctl(fh, VIDIOC_S_INPUT, &input,
+					  sizeof(input), sizeof(input));
 }
 
 static int virtio_media_g_output(struct file *file, void *fh, unsigned int *o)
@@ -932,9 +916,8 @@ static int virtio_media_g_output(struct file *file, void *fh, unsigned int *o)
 	u32 output;
 	int ret;
 
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_G_OUTPUT), &output,
-		sizeof(output), sizeof(output));
+	ret = virtio_media_send_wr_ioctl(fh, VIDIOC_G_OUTPUT, &output,
+					 sizeof(output), sizeof(output));
 	if (ret)
 		return ret;
 
@@ -947,9 +930,8 @@ static int virtio_media_s_output(struct file *file, void *fh, unsigned int o)
 {
 	u32 output = o;
 
-	return virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_OUTPUT), &output,
-		sizeof(output), sizeof(output));
+	return virtio_media_send_wr_ioctl(fh, VIDIOC_S_OUTPUT, &output,
+					  sizeof(output), sizeof(output));
 }
 
 /*
@@ -962,9 +944,8 @@ static int virtio_media_decoder_cmd(struct file *file, void *fh,
 	struct virtio_media_session *session = fh_to_session(fh);
 	int ret;
 
-	ret = virtio_media_send_wr_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_DECODER_CMD), cmd,
-		sizeof(*cmd), sizeof(*cmd));
+	ret = virtio_media_send_wr_ioctl(fh, VIDIOC_DECODER_CMD, cmd,
+					 sizeof(*cmd), sizeof(*cmd));
 	if (ret)
 		return ret;
 
@@ -987,8 +968,7 @@ static int virtio_media_s_std(struct file *file, void *fh, v4l2_std_id s)
 {
 	int ret;
 
-	ret = virtio_media_send_w_ioctl(
-		fh, VIRTIO_MEDIA_IOCTL_CODE(VIDIOC_S_STD), &s, sizeof(s));
+	ret = virtio_media_send_w_ioctl(fh, VIDIOC_S_STD, &s, sizeof(s));
 	if (ret)
 		return ret;
 
