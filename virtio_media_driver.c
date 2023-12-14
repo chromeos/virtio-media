@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0+
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+
 
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -830,4 +830,4 @@ module_virtio_driver(virtio_media_driver);
 MODULE_DEVICE_TABLE(virtio, id_table);
 MODULE_DESCRIPTION("virtio media driver");
 MODULE_AUTHOR("Alexandre Courbot <acourbot@chromium.org>");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("Dual BSD/GPL");

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0+
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+
 
 #include <linux/scatterlist.h>
 #include <linux/moduleparam.h>
