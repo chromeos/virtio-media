@@ -228,7 +228,7 @@ struct virtio_media_event_dqbuf {
 };
 
 /**
- * struct virtio_media_event_event - Signals that a V4L2 event has been emitted for a stream.
+ * struct virtio_media_event_event - Signals that a V4L2 event has been emitted for a session.
  *
  * @hdr: header for the event.
  * @event: description of the event that occurred.

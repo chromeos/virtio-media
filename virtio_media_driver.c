@@ -427,7 +427,7 @@ void virtio_media_process_events(struct virtio_media *vv)
 			if (len < sizeof(*event_evt)) {
 				v4l2_err(
 					&vv->v4l2_dev,
-					"stream event is too short: got %u expected %zu\n",
+					"session event is too short: got %u expected %zu\n",
 					len, sizeof(*event_evt));
 				break;
 			}
