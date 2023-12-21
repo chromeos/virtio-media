@@ -60,9 +60,13 @@ There are two queues in use:
 
 0
 : commandq - queue for driver commands and device responses to these commands.
+The device MUST return the descriptor chains it receives as soon as possible,
+and must never hold to them for indefinite periods of time.
 
 1
-: eventq - queue for events sent by the device to the driver.
+: eventq - queue for events sent by the device to the driver. The driver MUST
+re-queue the descriptor chains returned by the device as soon as possible, and
+must never hold on them for indefinite periods of time.
 
 ## Configuration area
 
