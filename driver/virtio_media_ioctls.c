@@ -781,13 +781,31 @@ static int virtio_media_create_bufs(struct file *file, void *fh,
 static int virtio_media_prepare_buf(struct file *file, void *fh,
 				    struct v4l2_buffer *b)
 {
-	int ret;
+	struct virtio_media_session *session = fh_to_session(fh);
+	struct virtio_media_queue_state *queue;
+	struct virtio_media_buffer *buffer;
+	int i, ret;
+
+	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
+		return -EINVAL;
+	queue = &session->queues[b->type];
+	if (b->index >= queue->allocated_bufs)
+		return -EINVAL;
+	buffer = &queue->buffers[b->index];
+
+	buffer->buffer.m = b->m;
+	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
+		if (b->length > VIDEO_MAX_PLANES)
+			return -EINVAL;
+		for (i = 0; i < b->length; i++)
+			buffer->planes[i].m = b->m.planes[i].m;
+	}
 
 	ret = virtio_media_send_buffer_ioctl(fh, VIDIOC_PREPARE_BUF, b);
 	if (ret)
 		return ret;
 
-	/* TODO should we store some information? */
+	buffer->buffer.flags = V4L2_BUF_FLAG_PREPARED;
 
 	return 0;
 }
@@ -797,24 +815,37 @@ static int virtio_media_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 	struct virtio_media_session *session = fh_to_session(fh);
 	struct virtio_media_queue_state *queue;
 	struct virtio_media_buffer *buffer;
-	int ret;
+	bool prepared;
+	int i, ret;
+
+	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
+		return -EINVAL;
+	queue = &session->queues[b->type];
+	if (b->index >= queue->allocated_bufs)
+		return -EINVAL;
+	buffer = &queue->buffers[b->index];
+	prepared = buffer->buffer.flags & V4L2_BUF_FLAG_PREPARED;
+
+	/*
+	 * Store the buffer and plane `m` information so we can retrieve it again
+	 * when DQBUF occurs.
+	 */
+	if (!prepared) {
+		buffer->buffer.m = b->m;
+		if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
+			if (b->length > VIDEO_MAX_PLANES)
+				return -EINVAL;
+			for (i = 0; i < b->length; i++)
+				buffer->planes[i].m = b->m.planes[i].m;
+		}
+	}
 
 	ret = virtio_media_send_buffer_ioctl(fh, VIDIOC_QBUF, b);
 	if (ret)
 		return ret;
 
-	/*
-	 * Store the buffer information so we can retrieve it again when DQBUF
-	 * occurs.
-	 */
-	queue = &session->queues[b->type];
 	queue->queued_bufs += 1;
-	buffer = &queue->buffers[b->index];
-	memcpy(&buffer->buffer, b, sizeof(*b));
-	if (V4L2_TYPE_IS_MULTIPLANAR(b->type) && b->length > 0) {
-		memcpy(buffer->planes, b->m.planes,
-		       sizeof(struct v4l2_plane) * b->length);
-	}
+	buffer->buffer.flags = V4L2_BUF_FLAG_QUEUED;
 
 	return 0;
 }
