@@ -215,10 +215,8 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	size_t resp_len;
 	int ret;
 
-	if (b->type > VIRTIO_MEDIA_LAST_QUEUE) {
-		v4l2_err(&vv->v4l2_dev, "unsupported queue: %d\n", b->type);
+	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
-	}
 
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		planes_backup = b->m.planes;
@@ -623,15 +621,11 @@ virtio_media_unsubscribe_event(struct v4l2_fh *fh,
 static int virtio_media_streamon(struct file *file, void *fh,
 				 enum v4l2_buf_type i)
 {
-	struct video_device *video_dev = video_devdata(file);
-	struct virtio_media *vv = to_virtio_media(video_dev);
 	struct virtio_media_session *session = fh_to_session(fh);
 	int ret;
 
-	if (i > VIRTIO_MEDIA_LAST_QUEUE) {
-		v4l2_err(&vv->v4l2_dev, "unsupported queue: %d\n", i);
+	if (i > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
-	}
 
 	ret = virtio_media_send_w_ioctl(fh, VIDIOC_STREAMON, &i, sizeof(i));
 	if (ret < 0)
@@ -651,7 +645,6 @@ static int virtio_media_streamoff(struct file *file, void *fh,
 	int ret;
 
 	if (i > VIRTIO_MEDIA_LAST_QUEUE) {
-		v4l2_err(&vv->v4l2_dev, "unsupported queue: %d\n", i);
 		return -EINVAL;
 	}
 
@@ -677,10 +670,8 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	struct virtio_media_queue_state *queue;
 	int ret;
 
-	if (b->type > VIRTIO_MEDIA_LAST_QUEUE) {
-		v4l2_err(&vv->v4l2_dev, "unsupported queue: %d\n", b->type);
+	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
-	}
 
 	ret = virtio_media_send_wr_ioctl(fh, VIDIOC_REQBUFS, b, sizeof(*b),
 					 sizeof(*b));
@@ -750,18 +741,14 @@ static int virtio_media_querybuf(struct file *file, void *fh,
 static int virtio_media_create_bufs(struct file *file, void *fh,
 				    struct v4l2_create_buffers *b)
 {
-	struct video_device *video_dev = video_devdata(file);
-	struct virtio_media *vv = to_virtio_media(video_dev);
 	struct virtio_media_session *session = fh_to_session(fh);
 	struct virtio_media_queue_state *queue;
 	struct virtio_media_buffer *buffers;
 	u32 type = b->format.type;
 	int ret;
 
-	if (type > VIRTIO_MEDIA_LAST_QUEUE) {
-		v4l2_err(&vv->v4l2_dev, "unsupported queue: %d\n", type);
+	if (type > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
-	}
 
 	queue = &session->queues[type];
 
@@ -872,8 +859,6 @@ static int virtio_media_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 static int virtio_media_dqbuf(struct file *file, void *fh,
 			      struct v4l2_buffer *b)
 {
-	struct video_device *video_dev = video_devdata(file);
-	struct virtio_media *vv = to_virtio_media(video_dev);
 	struct virtio_media_session *session =
 		fh_to_session(file->private_data);
 	struct virtio_media_buffer *dqbuf;
@@ -883,11 +868,8 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 	const bool is_multiplanar = V4L2_TYPE_IS_MULTIPLANAR(b->type);
 	int ret;
 
-	if (b->type > VIRTIO_MEDIA_LAST_QUEUE) {
-		v4l2_err(&vv->v4l2_dev, "unsupported queue for dqbuf: %d\n",
-			 b->type);
+	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
-	}
 
 	queue = &session->queues[b->type];
 
