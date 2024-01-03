@@ -724,11 +724,25 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 static int virtio_media_querybuf(struct file *file, void *fh,
 				 struct v4l2_buffer *b)
 {
+	struct virtio_media_session *session = fh_to_session(fh);
+	struct virtio_media_queue_state *queue;
+	struct virtio_media_buffer *buffer;
 	int ret;
 
 	ret = virtio_media_send_buffer_ioctl(fh, VIDIOC_QUERYBUF, b);
 	if (ret)
 		return ret;
+
+	if (b->type > VIRTIO_MEDIA_LAST_QUEUE) {
+		return -EINVAL;
+	}
+	queue = &session->queues[b->type];
+	if (b->index >= queue->allocated_bufs) {
+		return -EINVAL;
+	}
+	buffer = &queue->buffers[b->index];
+	/* Set the DONE flag if the buffer is waiting in our own dequeue queue. */
+	b->flags |= (buffer->buffer.flags & V4L2_BUF_FLAG_DONE);
 
 	return 0;
 }
@@ -816,6 +830,7 @@ static int virtio_media_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 	struct virtio_media_queue_state *queue;
 	struct virtio_media_buffer *buffer;
 	bool prepared;
+	u32 old_flags;
 	int i, ret;
 
 	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
@@ -839,13 +854,17 @@ static int virtio_media_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 				buffer->planes[i].m = b->m.planes[i].m;
 		}
 	}
+	old_flags = buffer->buffer.flags;
+	buffer->buffer.flags = V4L2_BUF_FLAG_QUEUED;
 
 	ret = virtio_media_send_buffer_ioctl(fh, VIDIOC_QBUF, b);
-	if (ret)
+	if (ret) {
+		/* Rollback the previous flags as the buffer is not queued. */
+		buffer->buffer.flags = old_flags;
 		return ret;
+	}
 
 	queue->queued_bufs += 1;
-	buffer->buffer.flags = V4L2_BUF_FLAG_QUEUED;
 
 	return 0;
 }
@@ -901,6 +920,9 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 				 list);
 	list_del(&dqbuf->list);
 	mutex_unlock(&session->dqbufs_lock);
+
+	/* Clear the DONE flag as the buffer is now being dequeued. */
+	dqbuf->buffer.flags &= ~V4L2_BUF_FLAG_DONE;
 
 	if (is_multiplanar) {
 		size_t nb_planes = min(b->length, (u32)VIDEO_MAX_PLANES);

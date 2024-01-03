@@ -354,6 +354,9 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 		}
 	}
 
+	/* Set the DONE flag as the buffer is waiting for being dequeued. */
+	dqbuf->buffer.flags |= V4L2_BUF_FLAG_DONE;
+
 	mutex_lock(&session->dqbufs_lock);
 	list_add_tail(&dqbuf->list,
 		      &session->queues[dqbuf->buffer.type].pending_dqbufs);
