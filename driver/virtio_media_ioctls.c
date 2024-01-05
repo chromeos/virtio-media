@@ -388,6 +388,7 @@ static void virtio_media_clear_queue(struct virtio_media *vv,
 				     struct virtio_media_queue_state *queue)
 {
 	struct list_head *p, *n;
+	int i;
 
 	mutex_lock(&session->dqbufs_lock);
 
@@ -399,6 +400,11 @@ static void virtio_media_clear_queue(struct virtio_media *vv,
 	}
 
 	mutex_unlock(&session->dqbufs_lock);
+
+	/* All buffers are now dequeued. */
+	for (i = 0; i < queue->allocated_bufs; i++) {
+		queue->buffers[i].buffer.flags = 0;
+	}
 
 	queue->queued_bufs = 0;
 	queue->streaming = false;
@@ -683,13 +689,15 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 
 	queue = &session->queues[b->type];
 
-	vfree(queue->buffers);
-	queue->buffers = NULL;
-
 	/* REQBUFS(0) is an implicit STREAMOFF. */
 	if (b->count == 0) {
 		virtio_media_clear_queue(vv, session, queue);
-	} else {
+	}
+
+	vfree(queue->buffers);
+	queue->buffers = NULL;
+
+	if (b->count > 0) {
 		queue->buffers =
 			vzalloc(sizeof(struct virtio_media_buffer) * b->count);
 		if (!queue->buffers) {
