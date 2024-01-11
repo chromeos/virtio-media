@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+
 
+/*
+ * Scatterlist filler helpers for virtio-media.
+ *
+ * Copyright (c) 2023-2024 Google LLC.
+ */
+
 #include <linux/scatterlist.h>
 #include <linux/moduleparam.h>
 #include <media/videobuf2-memops.h>
