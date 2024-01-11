@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+
 
+/*
+ * Definitions of virtio-media protocol structures.
+ *
+ * Copyright (c) 2023-2024 Google LLC.
+ */
+
 #ifndef __VIRTIO_MEDIA_PROTOCOL_H
 #define __VIRTIO_MEDIA_PROTOCOL_H
 
