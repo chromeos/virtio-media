@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+
 
-#ifndef __VIRTIO_MEDIA_DESCRIPTOR_H
-#define __VIRTIO_MEDIA_DESCRIPTOR_H
+#ifndef __VIRTIO_MEDIA_SCATTERLIST_FILLER_H
+#define __VIRTIO_MEDIA_SCATTERLIST_FILLER_H
 
 #include <linux/scatterlist.h>
 
@@ -114,4 +114,4 @@ int scatterlist_filler_retrieve_ext_ctrls(struct virtio_media_session *session,
 					  int num_ctrls_sgs,
 					  struct v4l2_ext_controls *ctrls);
 
-#endif // __VIRTIO_MEDIA_DESCRIPTOR_H
+#endif // __VIRTIO_MEDIA_SCATTERLIST_FILLER_H
