@@ -1,9 +1,9 @@
 # Virtio-media
 
-This is a virtio protocol definition and companion Linux guest kernel driver
-for virtualizing media devices using virtio, following the same model (and
-structures) as V4L2. It can be used to virtualize cameras, codec devices, or
-any other device supported by V4L2.
+This is a virtio protocol definition, companion Linux guest kernel driver, and
+set of host-side devices for virtualizing media devices using virtio, following
+the same model (and structures) as V4L2. It can be used to virtualize cameras,
+codec devices, or any other device supported by V4L2.
 
 V4L2 is a UAPI that allows a less privileged entity (user-space) to use video
 hardware exposed by a more privileged entity (the kernel). Virtio-media is an
@@ -33,8 +33,8 @@ which should be referred to alongside this document.
 
 ## Driver status
 
-The driver should be working and supporting most V4L2 features, with the
-exception of the following:
+The driver (in the `driver/` directory) should be working and supporting most
+V4L2 features, with the exception of the following:
 
 * [Read/Write
 API](https://www.kernel.org/doc/html/v4.8/media/uapi/v4l/rw.html), which is
@@ -48,6 +48,21 @@ obsolete and inefficient.
 * `VIDIOC_G/S_EDID` (to be implemented if it makes sense in a virtual context)
 * Media API and requests. This will probably be supported in the future behind
   a feature flag.
+
+## Devices status
+
+The `devices/` directory contains a Rust crate implementing helper functions to
+parse the protocol, interfaces to easily implement devices, and a couple of
+device implementations. It is written to be easily pluggable on any VMM. See
+the rustdoc in the `devices/` directory for more information.
+
+Implemented devices are:
+
+* A simple video capture device generating a pattern
+(`simple_device.rs`), purely software-based and thus not requiring any
+kind of hardware. This is here for reference and testing purposes.
+* A proxy device for host V4L2 devices, i.e. a device allowing to expose a host
+V4L2 device to the guest almost as-is (`v4l2_device_proxy.rs`).
 
 ## Virtio device ID
 
