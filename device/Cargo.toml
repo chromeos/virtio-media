@@ -1,0 +1,21 @@
+[package]
+name = "virtio-media"
+version = "0.0.1"
+license = "BSD-3-Clause"
+description = "Device support for virtio-media"
+repository = "https://github.com/chromeos/virtio-media"
+authors = ["The ChromiumOS Authors"]
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.32"
+enumn = "0.1.12"
+log = "0.4.20"
+libc = "0.2.151"
+zerocopy = { version = "0.7.31", features = ["derive"] }
+memfd = { version = "0.6.4", optional = true }
+v4l2r = { git = "https://github.com/Gnurou/v4l2r", rev = "acc87cf248" }
+
+[features]
+default = ["simple-device"]
+simple-device = ["memfd"]
