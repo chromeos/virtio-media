@@ -451,6 +451,9 @@ pub struct V4l2ProxyDevice<
     mmap_buffers: BTreeMap<u64, V4l2MmapPlaneInfo>,
 }
 
+pub struct DequeueEventError(i32);
+pub struct DequeueBufferError(i32);
+
 impl<Q, M, P> V4l2ProxyDevice<Q, M, P>
 where
     Q: VirtioMediaEventQueue,
@@ -552,7 +555,10 @@ where
     /// Dequeue all pending events for `session` and send them to the guest.
     ///
     /// In case of error, the session should be considered invalid and destroyed.
-    pub fn dequeue_events(&mut self, session: &mut V4l2Session<M>) -> Result<(), ()> {
+    pub fn dequeue_events(
+        &mut self,
+        session: &mut V4l2Session<M>,
+    ) -> Result<(), DequeueEventError> {
         loop {
             match v4l2r::ioctl::dqevent::<v4l2_event>(&session.device) {
                 Ok(event) => self
@@ -560,8 +566,9 @@ where
                     .send_event(V4l2Event::Event(SessionEvent::new(session.id, event))),
                 Err(DqEventError::NotReady) => return Ok(()),
                 Err(e) => {
-                    self.evt_queue.send_error(session.id, e.into_errno());
-                    return Err(());
+                    let err = e.into_errno();
+                    self.evt_queue.send_error(session.id, err);
+                    return Err(DequeueEventError(err));
                 }
             }
         }
@@ -571,7 +578,10 @@ where
     /// `evt_queue`.
     ///
     /// In case of error, the session should be considered invalid and destroyed.
-    pub fn dequeue_output_buffers(&mut self, session: &mut V4l2Session<M>) -> Result<(), ()> {
+    pub fn dequeue_output_buffers(
+        &mut self,
+        session: &mut V4l2Session<M>,
+    ) -> Result<(), DequeueBufferError> {
         let output_queue_type = match session.output_queue_type {
             Some(queue_type) => queue_type,
             None => return Ok(()),
@@ -596,8 +606,9 @@ where
                 }
                 Err(DqBufError::Eos) | Err(DqBufError::NotReady) => return Ok(()),
                 Err(e) => {
-                    self.evt_queue.send_error(session.id, e.into_errno());
-                    return Err(());
+                    let err = e.into_errno();
+                    self.evt_queue.send_error(session.id, err);
+                    return Err(DequeueBufferError(err));
                 }
             };
         }
@@ -610,7 +621,7 @@ where
         &mut self,
         session: &mut V4l2Session<M>,
         wait_ctx: &P,
-    ) -> Result<(), ()> {
+    ) -> Result<(), DequeueBufferError> {
         let capture_queue_type = match session.capture_queue_type {
             Some(queue_type) => queue_type,
             None => return Ok(()),
@@ -622,8 +633,9 @@ where
                 Err(DqBufError::Eos) => return Ok(()),
                 Err(DqBufError::NotReady) => return Ok(()),
                 Err(e) => {
-                    self.evt_queue.send_error(session.id, e.into_errno());
-                    return Err(());
+                    let err = e.into_errno();
+                    self.evt_queue.send_error(session.id, err);
+                    return Err(DequeueBufferError(err));
                 }
             };
 
