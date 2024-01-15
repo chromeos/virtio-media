@@ -648,28 +648,26 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 }
 
 impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller>
-    VirtioMediaIoctlHandler<V4l2Session<M>> for V4l2ProxyDevice<Q, M, P>
+    VirtioMediaIoctlHandler for V4l2ProxyDevice<Q, M, P>
 {
+    type Session = V4l2Session<M>;
+
     fn enum_fmt(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2_fmtdesc> {
         v4l2r::ioctl::enum_fmt(&session.device, queue, index).map_err(IntoErrno::into_errno)
     }
 
-    fn g_fmt(
-        &mut self,
-        session: &mut V4l2Session<M>,
-        queue: QueueType,
-    ) -> IoctlResult<v4l2_format> {
+    fn g_fmt(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
         v4l2r::ioctl::g_fmt(&session.device, queue).map_err(IntoErrno::into_errno)
     }
 
     fn s_fmt(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         v4l2r::ioctl::s_fmt(&mut session.device, format).map_err(IntoErrno::into_errno)
@@ -677,7 +675,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn reqbufs(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         queue: QueueType,
         memory: MemoryType,
         count: u32,
@@ -727,7 +725,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn querybuf(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<V4l2Buffer> {
@@ -741,7 +739,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
             })
     }
 
-    fn streamon(&mut self, session: &mut V4l2Session<M>, queue: QueueType) -> IoctlResult<()> {
+    fn streamon(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
         v4l2r::ioctl::streamon(&session.device, queue).map_err(IntoErrno::into_errno)?;
 
         match queue {
@@ -767,7 +765,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
         Ok(())
     }
 
-    fn streamoff(&mut self, session: &mut V4l2Session<M>, queue: QueueType) -> IoctlResult<()> {
+    fn streamoff(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
         v4l2r::ioctl::streamoff(&session.device, queue).map_err(IntoErrno::into_errno)?;
 
         match queue {
@@ -799,7 +797,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn qbuf(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         guest_buffer: V4l2Buffer,
         guest_regions: Vec<Vec<SgEntry>>,
     ) -> IoctlResult<V4l2Buffer> {
@@ -848,7 +846,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn g_parm(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         queue: QueueType,
     ) -> IoctlResult<v4l2_streamparm> {
         v4l2r::ioctl::g_parm(&session.device, queue).map_err(|e| e.into_errno())
@@ -856,29 +854,29 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn s_parm(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         parm: v4l2_streamparm,
     ) -> IoctlResult<v4l2_streamparm> {
         v4l2r::ioctl::s_parm(&session.device, parm).map_err(|e| e.into_errno())
     }
 
-    fn g_std(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_std_id> {
+    fn g_std(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
         v4l2r::ioctl::g_std(&session.device).map_err(|e| e.into_errno())
     }
 
-    fn s_std(&mut self, session: &mut V4l2Session<M>, std: v4l2_std_id) -> IoctlResult<()> {
+    fn s_std(&mut self, session: &mut Self::Session, std: v4l2_std_id) -> IoctlResult<()> {
         v4l2r::ioctl::s_std(&session.device, std).map_err(|e| e.into_errno())
     }
 
-    fn enumstd(&mut self, session: &mut V4l2Session<M>, index: u32) -> IoctlResult<v4l2_standard> {
+    fn enumstd(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_standard> {
         v4l2r::ioctl::enumstd(&session.device, index).map_err(|e| e.into_errno())
     }
 
-    fn enuminput(&mut self, session: &mut V4l2Session<M>, index: u32) -> IoctlResult<v4l2_input> {
+    fn enuminput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_input> {
         v4l2r::ioctl::enuminput(&session.device, index as usize).map_err(|e| e.into_errno())
     }
 
-    fn g_ctrl(&mut self, session: &mut V4l2Session<M>, id: u32) -> IoctlResult<v4l2_control> {
+    fn g_ctrl(&mut self, session: &mut Self::Session, id: u32) -> IoctlResult<v4l2_control> {
         v4l2r::ioctl::g_ctrl(&session.device, id)
             .map(|value| v4l2_control { id, value })
             .map_err(|e| e.into_errno())
@@ -886,7 +884,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn s_ctrl(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         id: u32,
         value: i32,
     ) -> IoctlResult<v4l2_control> {
@@ -895,26 +893,26 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
             .map_err(|e| e.into_errno())
     }
 
-    fn g_tuner(&mut self, session: &mut V4l2Session<M>, index: u32) -> IoctlResult<v4l2_tuner> {
+    fn g_tuner(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_tuner> {
         v4l2r::ioctl::g_tuner(&session.device, index).map_err(|e| e.into_errno())
     }
 
     fn s_tuner(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
         mode: TunerMode,
     ) -> IoctlResult<()> {
         v4l2r::ioctl::s_tuner(&session.device, index, mode).map_err(|e| e.into_errno())
     }
 
-    fn g_audio(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_audio> {
+    fn g_audio(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audio> {
         v4l2r::ioctl::g_audio(&session.device).map_err(|e| e.into_errno())
     }
 
     fn s_audio(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
         mode: Option<AudioMode>,
     ) -> IoctlResult<()> {
@@ -923,7 +921,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn queryctrl(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         id: v4l2r::ioctl::CtrlId,
         flags: v4l2r::ioctl::QueryCtrlFlags,
     ) -> IoctlResult<v4l2_queryctrl> {
@@ -932,52 +930,52 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn querymenu(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         id: u32,
         index: u32,
     ) -> IoctlResult<v4l2_querymenu> {
         v4l2r::ioctl::querymenu(&session.device, id, index).map_err(|e| e.into_errno())
     }
 
-    fn g_input(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<i32> {
+    fn g_input(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
         v4l2r::ioctl::g_input(&session.device)
             .map(|i| i as i32)
             .map_err(|e| e.into_errno())
     }
 
-    fn s_input(&mut self, session: &mut V4l2Session<M>, input: i32) -> IoctlResult<i32> {
+    fn s_input(&mut self, session: &mut Self::Session, input: i32) -> IoctlResult<i32> {
         v4l2r::ioctl::s_input(&session.device, input as usize)
             .map(|i| i as i32)
             .map_err(|e| e.into_errno())
     }
 
-    fn g_output(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<i32> {
+    fn g_output(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
         v4l2r::ioctl::g_output(&session.device)
             .map(|o| o as i32)
             .map_err(|e| e.into_errno())
     }
 
-    fn s_output(&mut self, session: &mut V4l2Session<M>, output: i32) -> IoctlResult<i32> {
+    fn s_output(&mut self, session: &mut Self::Session, output: i32) -> IoctlResult<i32> {
         v4l2r::ioctl::s_output(&session.device, output as usize)
             .map(|()| output)
             .map_err(|e| e.into_errno())
     }
 
-    fn enumoutput(&mut self, session: &mut V4l2Session<M>, index: u32) -> IoctlResult<v4l2_output> {
+    fn enumoutput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_output> {
         v4l2r::ioctl::enumoutput(&session.device, index as usize).map_err(|e| e.into_errno())
     }
 
-    fn g_audout(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_audioout> {
+    fn g_audout(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audioout> {
         v4l2r::ioctl::g_audout(&session.device).map_err(|e| e.into_errno())
     }
 
-    fn s_audout(&mut self, session: &mut V4l2Session<M>, index: u32) -> IoctlResult<()> {
+    fn s_audout(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<()> {
         v4l2r::ioctl::s_audout(&session.device, index).map_err(|e| e.into_errno())
     }
 
     fn g_modulator(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
     ) -> IoctlResult<v4l2_modulator> {
         v4l2r::ioctl::g_modulator(&session.device, index).map_err(|e| e.into_errno())
@@ -985,7 +983,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn s_modulator(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
         flags: TunerTransmissionFlags,
     ) -> IoctlResult<()> {
@@ -994,7 +992,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn g_frequency(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         tuner: u32,
     ) -> IoctlResult<v4l2_frequency> {
         v4l2r::ioctl::g_frequency(&session.device, tuner).map_err(|e| e.into_errno())
@@ -1002,7 +1000,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn s_frequency(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         tuner: u32,
         type_: TunerType,
         frequency: u32,
@@ -1011,25 +1009,25 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
             .map_err(|e| e.into_errno())
     }
 
-    fn querystd(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_std_id> {
+    fn querystd(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
         v4l2r::ioctl::querystd::<v4l2_std_id>(&session.device).map_err(|e| e.into_errno())
     }
 
     fn try_fmt(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         v4l2r::ioctl::try_fmt::<_, v4l2_format>(&session.device, format).map_err(|e| e.into_errno())
     }
 
-    fn enumaudio(&mut self, session: &mut V4l2Session<M>, index: u32) -> IoctlResult<v4l2_audio> {
+    fn enumaudio(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_audio> {
         v4l2r::ioctl::enumaudio::<v4l2_audio>(&session.device, index).map_err(|e| e.into_errno())
     }
 
     fn enumaudout(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
     ) -> IoctlResult<v4l2_audioout> {
         v4l2r::ioctl::enumaudout::<v4l2_audioout>(&session.device, index)
@@ -1038,7 +1036,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn g_ext_ctrls(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -1056,7 +1054,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn s_ext_ctrls(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -1074,7 +1072,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn try_ext_ctrls(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -1092,7 +1090,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn enum_framesizes(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
         pixel_format: u32,
     ) -> IoctlResult<v4l2_frmsizeenum> {
@@ -1102,7 +1100,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn enum_frameintervals(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
         pixel_format: u32,
         width: u32,
@@ -1118,13 +1116,13 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
         .map_err(|e| e.into_errno())
     }
 
-    fn g_enc_index(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_enc_idx> {
+    fn g_enc_index(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_enc_idx> {
         v4l2r::ioctl::g_enc_index(&session.device).map_err(|e| e.into_errno())
     }
 
     fn encoder_cmd(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         cmd: v4l2_encoder_cmd,
     ) -> IoctlResult<v4l2_encoder_cmd> {
         v4l2r::ioctl::encoder_cmd(&session.device, cmd).map_err(|e| e.into_errno())
@@ -1132,7 +1130,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn try_encoder_cmd(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         cmd: v4l2_encoder_cmd,
     ) -> IoctlResult<v4l2_encoder_cmd> {
         v4l2r::ioctl::try_encoder_cmd(&session.device, cmd).map_err(|e| e.into_errno())
@@ -1140,19 +1138,19 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn s_dv_timings(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         timings: v4l2_dv_timings,
     ) -> IoctlResult<v4l2_dv_timings> {
         v4l2r::ioctl::s_dv_timings(&session.device, timings).map_err(|e| e.into_errno())
     }
 
-    fn g_dv_timings(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_dv_timings> {
+    fn g_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
         v4l2r::ioctl::g_dv_timings(&session.device).map_err(|e| e.into_errno())
     }
 
     fn subscribe_event(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         event: V4l2EventType,
         flags: SubscribeEventFlags,
     ) -> IoctlResult<()> {
@@ -1170,7 +1168,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn unsubscribe_event(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         event: v4l2_event_subscription,
     ) -> IoctlResult<()> {
         if event.type_ == v4l2r::bindings::V4L2_EVENT_ALL {
@@ -1185,7 +1183,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn create_bufs(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         count: u32,
         queue: QueueType,
         memory: MemoryType,
@@ -1207,7 +1205,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn prepare_buf(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         guest_buffer: V4l2Buffer,
         guest_regions: Vec<Vec<SgEntry>>,
     ) -> IoctlResult<V4l2Buffer> {
@@ -1229,7 +1227,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn g_selection(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         sel_type: SelectionType,
         sel_target: SelectionTarget,
     ) -> IoctlResult<v4l2_rect> {
@@ -1238,7 +1236,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn s_selection(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         sel_type: SelectionType,
         sel_target: SelectionTarget,
         sel_rect: v4l2_rect,
@@ -1250,7 +1248,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn decoder_cmd(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         cmd: v4l2_decoder_cmd,
     ) -> IoctlResult<v4l2_decoder_cmd> {
         v4l2r::ioctl::decoder_cmd(&session.device, cmd).map_err(|e| e.into_errno())
@@ -1258,7 +1256,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn try_decoder_cmd(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         cmd: v4l2_decoder_cmd,
     ) -> IoctlResult<v4l2_decoder_cmd> {
         v4l2r::ioctl::try_decoder_cmd(&session.device, cmd).map_err(|e| e.into_errno())
@@ -1266,23 +1264,23 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn enum_dv_timings(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         index: u32,
     ) -> IoctlResult<v4l2_dv_timings> {
         v4l2r::ioctl::enum_dv_timings(&session.device, index).map_err(|e| e.into_errno())
     }
 
-    fn query_dv_timings(&mut self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_dv_timings> {
+    fn query_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
         v4l2r::ioctl::query_dv_timings(&session.device).map_err(|e| e.into_errno())
     }
 
-    fn dv_timings_cap(&self, session: &mut V4l2Session<M>) -> IoctlResult<v4l2_dv_timings_cap> {
+    fn dv_timings_cap(&self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings_cap> {
         v4l2r::ioctl::dv_timings_cap(&session.device).map_err(|e| e.into_errno())
     }
 
     fn enum_freq_bands(
         &self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         tuner: u32,
         type_: TunerType,
         index: u32,
@@ -1293,7 +1291,7 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
 
     fn query_ext_ctrl(
         &mut self,
-        session: &mut V4l2Session<M>,
+        session: &mut Self::Session,
         id: CtrlId,
         flags: QueryCtrlFlags,
     ) -> IoctlResult<v4l2_query_ext_ctrl> {

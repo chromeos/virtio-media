@@ -190,24 +190,30 @@ pub type IoctlResult<T> = Result<T, i32>;
 /// and override the ioctls it supports in order to provide a working implementation. All parsing
 /// and input validation is done by the companion struct `VirtioMediaIoctlDispatcher`.
 #[allow(unused_variables)]
-pub trait VirtioMediaIoctlHandler<S> {
+pub trait VirtioMediaIoctlHandler {
+    type Session;
+
     fn enum_fmt(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2_fmtdesc> {
         unhandled_ioctl!()
     }
-    fn g_fmt(&mut self, session: &mut S, queue: QueueType) -> IoctlResult<v4l2_format> {
+    fn g_fmt(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
     }
-    fn s_fmt(&mut self, session: &mut S, format: v4l2_format) -> IoctlResult<v4l2_format> {
+    fn s_fmt(
+        &mut self,
+        session: &mut Self::Session,
+        format: v4l2_format,
+    ) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
     }
     fn reqbufs(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         queue: QueueType,
         memory: MemoryType,
         count: u32,
@@ -216,7 +222,7 @@ pub trait VirtioMediaIoctlHandler<S> {
     }
     fn querybuf(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<V4l2Buffer> {
@@ -226,7 +232,7 @@ pub trait VirtioMediaIoctlHandler<S> {
     // TODO qbuf needs a better structure to represent a buffer and its potential guest buffers.
     fn qbuf(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         buffer: V4l2Buffer,
         guest_regions: Vec<Vec<SgEntry>>,
     ) -> IoctlResult<V4l2Buffer> {
@@ -235,121 +241,157 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     // TODO expbuf
 
-    fn streamon(&mut self, session: &mut S, queue: QueueType) -> IoctlResult<()> {
+    fn streamon(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
         unhandled_ioctl!()
     }
-    fn streamoff(&mut self, session: &mut S, queue: QueueType) -> IoctlResult<()> {
-        unhandled_ioctl!()
-    }
-
-    fn g_parm(&mut self, session: &mut S, queue: QueueType) -> IoctlResult<v4l2_streamparm> {
-        unhandled_ioctl!()
-    }
-    fn s_parm(&mut self, session: &mut S, parm: v4l2_streamparm) -> IoctlResult<v4l2_streamparm> {
+    fn streamoff(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
         unhandled_ioctl!()
     }
 
-    fn g_std(&mut self, session: &mut S) -> IoctlResult<v4l2_std_id> {
+    fn g_parm(
+        &mut self,
+        session: &mut Self::Session,
+        queue: QueueType,
+    ) -> IoctlResult<v4l2_streamparm> {
+        unhandled_ioctl!()
+    }
+    fn s_parm(
+        &mut self,
+        session: &mut Self::Session,
+        parm: v4l2_streamparm,
+    ) -> IoctlResult<v4l2_streamparm> {
         unhandled_ioctl!()
     }
 
-    fn s_std(&mut self, session: &mut S, std: v4l2_std_id) -> IoctlResult<()> {
+    fn g_std(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
         unhandled_ioctl!()
     }
 
-    fn enumstd(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_standard> {
+    fn s_std(&mut self, session: &mut Self::Session, std: v4l2_std_id) -> IoctlResult<()> {
         unhandled_ioctl!()
     }
 
-    fn enuminput(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_input> {
+    fn enumstd(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_standard> {
         unhandled_ioctl!()
     }
 
-    fn g_ctrl(&mut self, session: &mut S, id: u32) -> IoctlResult<v4l2_control> {
+    fn enuminput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_input> {
         unhandled_ioctl!()
     }
 
-    fn s_ctrl(&mut self, session: &mut S, id: u32, value: i32) -> IoctlResult<v4l2_control> {
+    fn g_ctrl(&mut self, session: &mut Self::Session, id: u32) -> IoctlResult<v4l2_control> {
         unhandled_ioctl!()
     }
 
-    fn g_tuner(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_tuner> {
+    fn s_ctrl(
+        &mut self,
+        session: &mut Self::Session,
+        id: u32,
+        value: i32,
+    ) -> IoctlResult<v4l2_control> {
         unhandled_ioctl!()
     }
 
-    fn s_tuner(&mut self, session: &mut S, index: u32, mode: TunerMode) -> IoctlResult<()> {
+    fn g_tuner(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_tuner> {
         unhandled_ioctl!()
     }
 
-    fn g_audio(&mut self, session: &mut S) -> IoctlResult<v4l2_audio> {
+    fn s_tuner(
+        &mut self,
+        session: &mut Self::Session,
+        index: u32,
+        mode: TunerMode,
+    ) -> IoctlResult<()> {
         unhandled_ioctl!()
     }
 
-    fn s_audio(&mut self, session: &mut S, index: u32, mode: Option<AudioMode>) -> IoctlResult<()> {
+    fn g_audio(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audio> {
+        unhandled_ioctl!()
+    }
+
+    fn s_audio(
+        &mut self,
+        session: &mut Self::Session,
+        index: u32,
+        mode: Option<AudioMode>,
+    ) -> IoctlResult<()> {
         unhandled_ioctl!()
     }
 
     fn queryctrl(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         id: CtrlId,
         flags: QueryCtrlFlags,
     ) -> IoctlResult<v4l2_queryctrl> {
         unhandled_ioctl!()
     }
 
-    fn querymenu(&mut self, session: &mut S, id: u32, index: u32) -> IoctlResult<v4l2_querymenu> {
+    fn querymenu(
+        &mut self,
+        session: &mut Self::Session,
+        id: u32,
+        index: u32,
+    ) -> IoctlResult<v4l2_querymenu> {
         unhandled_ioctl!()
     }
 
-    fn g_input(&mut self, session: &mut S) -> IoctlResult<i32> {
+    fn g_input(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
         unhandled_ioctl!()
     }
 
-    fn s_input(&mut self, session: &mut S, input: i32) -> IoctlResult<i32> {
+    fn s_input(&mut self, session: &mut Self::Session, input: i32) -> IoctlResult<i32> {
         unhandled_ioctl!()
     }
 
-    fn g_output(&mut self, session: &mut S) -> IoctlResult<i32> {
+    fn g_output(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
         unhandled_ioctl!()
     }
 
-    fn s_output(&mut self, session: &mut S, output: i32) -> IoctlResult<i32> {
+    fn s_output(&mut self, session: &mut Self::Session, output: i32) -> IoctlResult<i32> {
         unhandled_ioctl!()
     }
 
-    fn enumoutput(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_output> {
+    fn enumoutput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_output> {
         unhandled_ioctl!()
     }
 
-    fn g_audout(&mut self, session: &mut S) -> IoctlResult<v4l2_audioout> {
+    fn g_audout(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audioout> {
         unhandled_ioctl!()
     }
 
-    fn s_audout(&mut self, session: &mut S, index: u32) -> IoctlResult<()> {
+    fn s_audout(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<()> {
         unhandled_ioctl!()
     }
 
-    fn g_modulator(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_modulator> {
+    fn g_modulator(
+        &mut self,
+        session: &mut Self::Session,
+        index: u32,
+    ) -> IoctlResult<v4l2_modulator> {
         unhandled_ioctl!()
     }
 
     fn s_modulator(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         index: u32,
         flags: TunerTransmissionFlags,
     ) -> IoctlResult<()> {
         unhandled_ioctl!()
     }
 
-    fn g_frequency(&mut self, session: &mut S, tuner: u32) -> IoctlResult<v4l2_frequency> {
+    fn g_frequency(
+        &mut self,
+        session: &mut Self::Session,
+        tuner: u32,
+    ) -> IoctlResult<v4l2_frequency> {
         unhandled_ioctl!()
     }
 
     fn s_frequency(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         tuner: u32,
         type_: TunerType,
         frequency: u32,
@@ -357,26 +399,34 @@ pub trait VirtioMediaIoctlHandler<S> {
         unhandled_ioctl!()
     }
 
-    fn querystd(&mut self, session: &mut S) -> IoctlResult<v4l2_std_id> {
+    fn querystd(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
         unhandled_ioctl!()
     }
 
-    fn try_fmt(&mut self, session: &mut S, format: v4l2_format) -> IoctlResult<v4l2_format> {
+    fn try_fmt(
+        &mut self,
+        session: &mut Self::Session,
+        format: v4l2_format,
+    ) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
     }
 
-    fn enumaudio(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_audio> {
+    fn enumaudio(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_audio> {
         unhandled_ioctl!()
     }
 
-    fn enumaudout(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_audioout> {
+    fn enumaudout(
+        &mut self,
+        session: &mut Self::Session,
+        index: u32,
+    ) -> IoctlResult<v4l2_audioout> {
         unhandled_ioctl!()
     }
 
     /// Ext control ioctls modify `ctrls` and `ctrl_array` in place instead of returning them.
     fn g_ext_ctrls(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -387,7 +437,7 @@ pub trait VirtioMediaIoctlHandler<S> {
     /// Ext control ioctls modify `ctrls` and `ctrl_array` in place instead of returning them.
     fn s_ext_ctrls(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -398,7 +448,7 @@ pub trait VirtioMediaIoctlHandler<S> {
     /// Ext control ioctls modify `ctrls` and `ctrl_array` in place instead of returning them.
     fn try_ext_ctrls(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -409,7 +459,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn enum_framesizes(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         index: u32,
         pixel_format: u32,
     ) -> IoctlResult<v4l2_frmsizeenum> {
@@ -418,7 +468,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn enum_frameintervals(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         index: u32,
         pixel_format: u32,
         width: u32,
@@ -427,13 +477,13 @@ pub trait VirtioMediaIoctlHandler<S> {
         unhandled_ioctl!()
     }
 
-    fn g_enc_index(&mut self, session: &mut S) -> IoctlResult<v4l2_enc_idx> {
+    fn g_enc_index(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_enc_idx> {
         unhandled_ioctl!()
     }
 
     fn encoder_cmd(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         cmd: v4l2_encoder_cmd,
     ) -> IoctlResult<v4l2_encoder_cmd> {
         unhandled_ioctl!()
@@ -441,7 +491,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn try_encoder_cmd(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         cmd: v4l2_encoder_cmd,
     ) -> IoctlResult<v4l2_encoder_cmd> {
         unhandled_ioctl!()
@@ -449,19 +499,19 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn s_dv_timings(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         timings: v4l2_dv_timings,
     ) -> IoctlResult<v4l2_dv_timings> {
         unhandled_ioctl!()
     }
 
-    fn g_dv_timings(&mut self, session: &mut S) -> IoctlResult<v4l2_dv_timings> {
+    fn g_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
         unhandled_ioctl!()
     }
 
     fn subscribe_event(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         event: V4l2EventType,
         flags: SubscribeEventFlags,
     ) -> IoctlResult<()> {
@@ -470,7 +520,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn unsubscribe_event(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         event: v4l2_event_subscription,
     ) -> IoctlResult<()> {
         unhandled_ioctl!()
@@ -481,7 +531,7 @@ pub trait VirtioMediaIoctlHandler<S> {
     /// `create_buffers` is modified in place and returned to the guest event in case of error.
     fn create_bufs(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         count: u32,
         queue: QueueType,
         memory: MemoryType,
@@ -494,7 +544,7 @@ pub trait VirtioMediaIoctlHandler<S> {
     // buffers.
     fn prepare_buf(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         buffer: V4l2Buffer,
         guest_regions: Vec<Vec<SgEntry>>,
     ) -> IoctlResult<V4l2Buffer> {
@@ -503,7 +553,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn g_selection(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         sel_type: SelectionType,
         sel_target: SelectionTarget,
     ) -> IoctlResult<v4l2_rect> {
@@ -512,7 +562,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn s_selection(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         sel_type: SelectionType,
         sel_target: SelectionTarget,
         sel_rect: v4l2_rect,
@@ -523,7 +573,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn decoder_cmd(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         cmd: v4l2_decoder_cmd,
     ) -> IoctlResult<v4l2_decoder_cmd> {
         unhandled_ioctl!()
@@ -531,27 +581,31 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn try_decoder_cmd(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         cmd: v4l2_decoder_cmd,
     ) -> IoctlResult<v4l2_decoder_cmd> {
         unhandled_ioctl!()
     }
 
-    fn enum_dv_timings(&mut self, session: &mut S, index: u32) -> IoctlResult<v4l2_dv_timings> {
+    fn enum_dv_timings(
+        &mut self,
+        session: &mut Self::Session,
+        index: u32,
+    ) -> IoctlResult<v4l2_dv_timings> {
         unhandled_ioctl!()
     }
 
-    fn query_dv_timings(&mut self, session: &mut S) -> IoctlResult<v4l2_dv_timings> {
+    fn query_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
         unhandled_ioctl!()
     }
 
-    fn dv_timings_cap(&self, session: &mut S) -> IoctlResult<v4l2_dv_timings_cap> {
+    fn dv_timings_cap(&self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings_cap> {
         unhandled_ioctl!()
     }
 
     fn enum_freq_bands(
         &self,
-        session: &mut S,
+        session: &mut Self::Session,
         tuner: u32,
         type_: TunerType,
         index: u32,
@@ -561,7 +615,7 @@ pub trait VirtioMediaIoctlHandler<S> {
 
     fn query_ext_ctrl(
         &mut self,
-        session: &mut S,
+        session: &mut Self::Session,
         id: CtrlId,
         flags: QueryCtrlFlags,
     ) -> IoctlResult<v4l2_query_ext_ctrl> {
@@ -820,7 +874,7 @@ pub fn virtio_media_dispatch_ioctl<S, H, Reader, Writer>(
     writer: &mut Writer,
 ) -> IoResult<()>
 where
-    H: VirtioMediaIoctlHandler<S>,
+    H: VirtioMediaIoctlHandler<Session = S>,
     Reader: std::io::Read,
     Writer: std::io::Write,
 {
