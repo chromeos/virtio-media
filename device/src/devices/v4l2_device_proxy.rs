@@ -294,7 +294,10 @@ pub struct V4l2Session<M: VirtioMediaGuestMemoryMapper> {
     userptr_buffers: BTreeMap<u64, V4l2UserPlaneInfo<M::GuestMemoryMapping>>,
 }
 
-impl<M: VirtioMediaGuestMemoryMapper> V4l2Session<M> {
+impl<M> V4l2Session<M>
+where
+    M: VirtioMediaGuestMemoryMapper,
+{
     fn new(id: u32, device: Arc<V4l2Device>) -> Self {
         Self {
             id,
@@ -448,8 +451,11 @@ pub struct V4l2ProxyDevice<
     mmap_buffers: BTreeMap<u64, V4l2MmapPlaneInfo>,
 }
 
-impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller>
-    V4l2ProxyDevice<Q, M, P>
+impl<Q, M, P> V4l2ProxyDevice<Q, M, P>
+where
+    Q: VirtioMediaEventQueue,
+    M: VirtioMediaGuestMemoryMapper,
+    P: SessionPoller,
 {
     pub fn new(device_path: PathBuf, evt_queue: Q, mem: M, session_poller: P) -> Self {
         Self {
@@ -647,8 +653,11 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
     }
 }
 
-impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller>
-    VirtioMediaIoctlHandler for V4l2ProxyDevice<Q, M, P>
+impl<Q, M, P> VirtioMediaIoctlHandler for V4l2ProxyDevice<Q, M, P>
+where
+    Q: VirtioMediaEventQueue,
+    M: VirtioMediaGuestMemoryMapper,
+    P: SessionPoller,
 {
     type Session = V4l2Session<M>;
 
@@ -1300,13 +1309,13 @@ impl<Q: VirtioMediaEventQueue, M: VirtioMediaGuestMemoryMapper, P: SessionPoller
     }
 }
 
-impl<
-        Q: VirtioMediaEventQueue,
-        M: VirtioMediaGuestMemoryMapper,
-        P: SessionPoller,
-        Reader: std::io::Read,
-        Writer: std::io::Write,
-    > VirtioMediaDevice<Reader, Writer> for V4l2ProxyDevice<Q, M, P>
+impl<Q, M, P, Reader, Writer> VirtioMediaDevice<Reader, Writer> for V4l2ProxyDevice<Q, M, P>
+where
+    Q: VirtioMediaEventQueue,
+    M: VirtioMediaGuestMemoryMapper,
+    P: SessionPoller,
+    Reader: std::io::Read,
+    Writer: std::io::Write,
 {
     type Session = V4l2Session<M>;
 
