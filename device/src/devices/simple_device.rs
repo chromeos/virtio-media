@@ -221,7 +221,10 @@ pub struct SimpleCaptureDevice<Q: VirtioMediaEventQueue> {
     active_session: Option<u32>,
 }
 
-impl<Q: VirtioMediaEventQueue> SimpleCaptureDevice<Q> {
+impl<Q> SimpleCaptureDevice<Q>
+where
+    Q: VirtioMediaEventQueue,
+{
     pub fn new(evt_queue: Q) -> Self {
         Self {
             evt_queue,
@@ -231,8 +234,11 @@ impl<Q: VirtioMediaEventQueue> SimpleCaptureDevice<Q> {
     }
 }
 
-impl<Q: VirtioMediaEventQueue, Reader: std::io::Read, Writer: std::io::Write>
-    VirtioMediaDevice<Reader, Writer> for SimpleCaptureDevice<Q>
+impl<Q, Reader, Writer> VirtioMediaDevice<Reader, Writer> for SimpleCaptureDevice<Q>
+where
+    Q: VirtioMediaEventQueue,
+    Reader: std::io::Read,
+    Writer: std::io::Write,
 {
     type Session = SimpleCaptureDeviceSession;
 
@@ -383,7 +389,10 @@ fn default_fmt(queue: QueueType) -> v4l2_format {
 }
 
 /// Implementations of the ioctls required by a CAPTURE device.
-impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler for SimpleCaptureDevice<Q> {
+impl<Q> VirtioMediaIoctlHandler for SimpleCaptureDevice<Q>
+where
+    Q: VirtioMediaEventQueue,
+{
     type Session = SimpleCaptureDeviceSession;
 
     fn enum_fmt(
