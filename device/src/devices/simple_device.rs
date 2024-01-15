@@ -383,12 +383,12 @@ fn default_fmt(queue: QueueType) -> v4l2_format {
 }
 
 /// Implementations of the ioctls required by a CAPTURE device.
-impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSession>
-    for SimpleCaptureDevice<Q>
-{
+impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler for SimpleCaptureDevice<Q> {
+    type Session = SimpleCaptureDeviceSession;
+
     fn enum_fmt(
         &mut self,
-        _session: &mut SimpleCaptureDeviceSession,
+        _session: &mut Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2_fmtdesc> {
@@ -404,7 +404,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
 
     fn g_fmt(
         &mut self,
-        _session: &mut SimpleCaptureDeviceSession,
+        _session: &mut Self::Session,
         queue: QueueType,
     ) -> IoctlResult<v4l2_format> {
         if queue != QueueType::VideoCapture {
@@ -416,7 +416,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
 
     fn s_fmt(
         &mut self,
-        _session: &mut SimpleCaptureDeviceSession,
+        _session: &mut Self::Session,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         let queue = QueueType::n(format.type_).ok_or(libc::EINVAL)?;
@@ -429,7 +429,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
 
     fn try_fmt(
         &mut self,
-        _session: &mut SimpleCaptureDeviceSession,
+        _session: &mut Self::Session,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         // TODO pass the validated queue to these hooks?
@@ -443,7 +443,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
 
     fn reqbufs(
         &mut self,
-        session: &mut SimpleCaptureDeviceSession,
+        session: &mut Self::Session,
         queue: QueueType,
         memory: MemoryType,
         count: u32,
@@ -511,7 +511,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
 
     fn querybuf(
         &mut self,
-        session: &mut SimpleCaptureDeviceSession,
+        session: &mut Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2r::ioctl::V4l2Buffer> {
@@ -525,7 +525,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
 
     fn qbuf(
         &mut self,
-        session: &mut SimpleCaptureDeviceSession,
+        session: &mut Self::Session,
         buffer: v4l2r::ioctl::V4l2Buffer,
         _guest_regions: Vec<Vec<SgEntry>>,
     ) -> IoctlResult<v4l2r::ioctl::V4l2Buffer> {
@@ -550,11 +550,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
         Ok(buffer)
     }
 
-    fn streamon(
-        &mut self,
-        session: &mut SimpleCaptureDeviceSession,
-        queue: QueueType,
-    ) -> IoctlResult<()> {
+    fn streamon(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
         if queue != QueueType::VideoCapture || session.buffers.is_empty() {
             return Err(libc::EINVAL);
         }
@@ -565,11 +561,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
         Ok(())
     }
 
-    fn streamoff(
-        &mut self,
-        session: &mut SimpleCaptureDeviceSession,
-        queue: QueueType,
-    ) -> IoctlResult<()> {
+    fn streamoff(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
         if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
@@ -582,15 +574,11 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
         Ok(())
     }
 
-    fn g_input(&mut self, _session: &mut SimpleCaptureDeviceSession) -> IoctlResult<i32> {
+    fn g_input(&mut self, _session: &mut Self::Session) -> IoctlResult<i32> {
         Ok(0)
     }
 
-    fn s_input(
-        &mut self,
-        _session: &mut SimpleCaptureDeviceSession,
-        input: i32,
-    ) -> IoctlResult<i32> {
+    fn s_input(&mut self, _session: &mut Self::Session, input: i32) -> IoctlResult<i32> {
         if input != 0 {
             Err(libc::EINVAL)
         } else {
@@ -600,7 +588,7 @@ impl<Q: VirtioMediaEventQueue> VirtioMediaIoctlHandler<SimpleCaptureDeviceSessio
 
     fn enuminput(
         &mut self,
-        _session: &mut SimpleCaptureDeviceSession,
+        _session: &mut Self::Session,
         index: u32,
     ) -> IoctlResult<bindings::v4l2_input> {
         if index != 0 {
