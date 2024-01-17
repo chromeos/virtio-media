@@ -1352,12 +1352,12 @@ where
         self.delete_session(&session)
     }
 
-    fn do_mmap<GM: VirtioMediaHostMemoryMapper>(
+    fn do_mmap<HM: VirtioMediaHostMemoryMapper>(
         &mut self,
         session: &mut Self::Session,
+        mapper: &mut HM,
         flags: u32,
         offset: u64,
-        mapper: &mut GM,
         writer: &mut Writer,
     ) -> IoResult<()> {
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
@@ -1402,10 +1402,10 @@ where
         writer.write_response(MmapResp::ok(plane_info.map_address, length))
     }
 
-    fn do_munmap<GM: VirtioMediaHostMemoryMapper>(
+    fn do_munmap<HM: VirtioMediaHostMemoryMapper>(
         &mut self,
+        mapper: &mut HM,
         offset: u64,
-        mapper: &mut GM,
         writer: &mut Writer,
     ) -> IoResult<()> {
         let mut entry = match self.mmap_buffers.entry(offset) {
