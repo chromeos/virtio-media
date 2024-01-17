@@ -306,6 +306,7 @@ where
                     num_mappings: 1,
                 });
                 self.mmap_mappings.insert(offset, buffer.mmap.clone());
+
                 guest_addr
             }
         };
@@ -316,10 +317,16 @@ where
     fn do_munmap<M: VirtioMediaHostMemoryMapper>(
         &mut self,
         mapper: &mut M,
-        offset: u64,
+        guest_addr: u64,
         writer: &mut Writer,
     ) -> IoResult<()> {
-        if let Some(mapping) = self.mmap_mappings.remove(&offset) {
+        if let Some((offset, mapping)) = self.mmap_mappings.iter().find(|(_, mapping)| {
+            mapping
+                .borrow()
+                .as_ref()
+                .map(|mapping| mapping.guest_addr == guest_addr)
+                .unwrap_or(false)
+        }) {
             let mut mmap = mapping.borrow_mut();
             if let Some(BufferMmap {
                 ref mut num_mappings,
@@ -331,21 +338,26 @@ where
                     // If this was the last mapping, remove it.
                     *mmap = None;
 
-                    match mapper.remove_mapping(offset) {
-                        Ok(()) => return writer.write_response(MunmapResp::ok()),
+                    let ret = match mapper.remove_mapping(*offset) {
+                        Ok(()) => writer.write_response(MunmapResp::ok()),
                         Err(e) => {
                             log::warn!(
                                 "could not unmap host buffer with offset 0x{:x}: {:#}",
-                                offset,
+                                guest_addr,
                                 e
                             );
-                            return writer.write_err_response(libc::EINVAL);
+                            writer.write_err_response(libc::EINVAL)
                         }
-                    }
-                } else {
-                    // Otherwise, put it back.
+                    };
+
+                    // Stop borrowing `mmap_mappings`.
+                    let offset = *offset;
                     drop(mmap);
-                    self.mmap_mappings.insert(offset, mapping);
+                    let _ = self.mmap_mappings.remove(&offset);
+
+                    return ret;
+                } else {
+                    // Otherwise, keep the mapping.
                     return writer.write_response(MunmapResp::ok());
                 }
             }

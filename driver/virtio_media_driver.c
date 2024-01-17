@@ -465,7 +465,7 @@ end_of_event:
  * sends it again to the host so it can send us the next event without ever
  * starving.
  */
-void virtio_media_event_work(struct work_struct *work)
+static void virtio_media_event_work(struct work_struct *work)
 {
 	struct virtio_media *vv =
 		container_of(work, struct virtio_media, eventq_work);
@@ -615,7 +615,7 @@ static void virtio_media_vma_close(struct vm_area_struct *vma)
 
 	mutex_lock(&vv->bufs_lock);
 	cmd_munmap->hdr.cmd = VIRTIO_MEDIA_CMD_MUNMAP;
-	cmd_munmap->offset = vma->vm_pgoff << PAGE_SHIFT;
+	cmd_munmap->guest_addr = vma->vm_pgoff << PAGE_SHIFT;
 	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(*resp_munmap),
 					NULL);
 	mutex_unlock(&vv->bufs_lock);
@@ -676,6 +676,11 @@ static int virtio_media_device_mmap(struct file *file,
 		return ret;
 
 	vma->vm_private_data = vv;
+	/*
+	 * Keep the guest address at which the buffer is mapped since we will
+	 * use that to unmap.
+	 */
+	vma->vm_pgoff = resp_mmap->addr >> PAGE_SHIFT;
 
 	if (vma->vm_end - vma->vm_start > PAGE_ALIGN(resp_mmap->len)) {
 		virtio_media_vma_close(vma);

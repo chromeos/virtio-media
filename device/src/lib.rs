@@ -240,7 +240,7 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
     fn do_munmap<M: VirtioMediaHostMemoryMapper>(
         &mut self,
         mapper: &mut M,
-        offset: u64,
+        guest_addr: u64,
         writer: &mut Writer,
     ) -> IoResult<()>;
 }
@@ -357,9 +357,9 @@ where
             VIRTIO_MEDIA_CMD_MUNMAP => reader
                 .read_obj()
                 .context("while reading UNMMAP command")
-                .and_then(|MunmapCmd { offset }| {
+                .and_then(|MunmapCmd { guest_addr }| {
                     self.device
-                        .do_munmap(mapper, offset, writer)
+                        .do_munmap(mapper, guest_addr, writer)
                         .context("while writing response for MUNMAP command")
                 }),
             _ => writer

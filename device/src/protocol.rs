@@ -219,7 +219,7 @@ impl MmapResp {
 #[repr(C)]
 #[derive(Debug, FromZeroes, FromBytes)]
 pub struct MunmapCmd {
-    pub offset: u64,
+    pub guest_addr: u64,
 }
 
 #[repr(C)]
