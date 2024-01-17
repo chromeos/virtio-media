@@ -171,16 +171,20 @@ struct virtio_media_resp_mmap {
 	u64 len;
 };
 
-/**)
+/**
  * VIRTIO_MEDIA_CMD_MUNMAP - Unmap a MMAP buffer previously mapped using VIRTIO_MEDIA_CMD_MMAP.
  */
 #define VIRTIO_MEDIA_CMD_MUNMAP 5
 
 /**
- * struct virtio_media_cmd_munmap - Driver command for VIRTIO_MEDIA_CMD_MUNMAP. */
+ * struct virtio_media_cmd_munmap - Driver command for VIRTIO_MEDIA_CMD_MUNMAP.
+ *
+ * @guest_addr: guest physical address at which the buffer has been previously
+ * mapped.
+ */
 struct virtio_media_cmd_munmap {
 	struct virtio_media_cmd_header hdr;
-	u64 offset;
+	u64 guest_addr;
 };
 
 /**

@@ -4,7 +4,6 @@
 
 //! This module uses `v4l2r` to proxy a host V4L2 device into the guest.
 
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Result as IoResult;
@@ -1405,15 +1404,17 @@ where
     fn do_munmap<HM: VirtioMediaHostMemoryMapper>(
         &mut self,
         mapper: &mut HM,
-        offset: u64,
+        guest_addr: u64,
         writer: &mut Writer,
     ) -> IoResult<()> {
-        let mut entry = match self.mmap_buffers.entry(offset) {
-            Entry::Vacant(_) => return writer.write_err_response(libc::EINVAL),
-            Entry::Occupied(entry) => entry,
+        let (&offset, plane_info) = match self
+            .mmap_buffers
+            .iter_mut()
+            .find(|(_, entry)| entry.map_count > 0 && entry.map_address == guest_addr)
+        {
+            Some((offset, entry)) => (offset, entry),
+            None => return writer.write_err_response(libc::EINVAL),
         };
-
-        let plane_info = entry.get_mut();
 
         if plane_info.map_count == 0 {
             return writer.write_err_response(libc::EINVAL);
@@ -1434,7 +1435,7 @@ where
             }
             // Remove that entry if its map count is zero and it is not active per the device.
             if !plane_info.active {
-                entry.remove();
+                let _ = self.mmap_buffers.remove(&offset);
             }
         }
 
