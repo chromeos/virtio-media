@@ -228,9 +228,9 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
     fn do_mmap<M: VirtioMediaHostMemoryMapper>(
         &mut self,
         session: &mut Self::Session,
+        mapper: &mut M,
         flags: u32,
         offset: u64,
-        mapper: &mut M,
         writer: &mut Writer,
     ) -> IoResult<()>;
     /// Performs the MUNMAP command and write the response into `writer`.
@@ -239,8 +239,8 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
     /// propagated to the guest.
     fn do_munmap<M: VirtioMediaHostMemoryMapper>(
         &mut self,
-        offset: u64,
         mapper: &mut M,
+        offset: u64,
         writer: &mut Writer,
     ) -> IoResult<()>;
 }
@@ -346,7 +346,7 @@ where
                      }| {
                         match self.sessions.get_mut(&session_id) {
                             Some(session) => {
-                                self.device.do_mmap(session, flags, offset, mapper, writer)
+                                self.device.do_mmap(session, mapper, flags, offset, writer)
                             }
 
                             None => writer.write_err_response(libc::EINVAL),
@@ -359,7 +359,7 @@ where
                 .context("while reading UNMMAP command")
                 .and_then(|MunmapCmd { offset }| {
                     self.device
-                        .do_munmap(offset, mapper, writer)
+                        .do_munmap(mapper, offset, writer)
                         .context("while writing response for MUNMAP command")
                 }),
             _ => writer

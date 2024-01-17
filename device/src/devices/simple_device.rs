@@ -271,9 +271,9 @@ where
     fn do_mmap<M: VirtioMediaHostMemoryMapper>(
         &mut self,
         session: &mut Self::Session,
+        mapper: &mut M,
         flags: u32,
         offset: u64,
-        mapper: &mut M,
         writer: &mut Writer,
     ) -> IoResult<()> {
         let buffer = match session.buffers.iter_mut().find(|b| b.offset == offset) {
@@ -315,8 +315,8 @@ where
 
     fn do_munmap<M: VirtioMediaHostMemoryMapper>(
         &mut self,
-        offset: u64,
         mapper: &mut M,
+        offset: u64,
         writer: &mut Writer,
     ) -> IoResult<()> {
         if let Some(mapping) = self.mmap_mappings.remove(&offset) {
