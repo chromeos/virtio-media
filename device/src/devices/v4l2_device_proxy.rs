@@ -436,6 +436,7 @@ struct V4l2MmapPlaneInfo {
 pub struct V4l2ProxyDevice<
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
+    HM: VirtioMediaHostMemoryMapper,
     P: SessionPoller = (),
 > {
     /// `/dev/videoX` host device path.
@@ -445,6 +446,8 @@ pub struct V4l2ProxyDevice<
     evt_queue: Q,
     session_poller: P,
 
+    mapper: HM,
+
     /// Map of memory offsets to detailed buffer information. Only used for queues which memory
     /// type is MMAP.
     mmap_buffers: BTreeMap<u64, V4l2MmapPlaneInfo>,
@@ -453,17 +456,19 @@ pub struct V4l2ProxyDevice<
 pub struct DequeueEventError(i32);
 pub struct DequeueBufferError(i32);
 
-impl<Q, M, P> V4l2ProxyDevice<Q, M, P>
+impl<Q, M, HM, P> V4l2ProxyDevice<Q, M, HM, P>
 where
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
+    HM: VirtioMediaHostMemoryMapper,
     P: SessionPoller,
 {
-    pub fn new(device_path: PathBuf, evt_queue: Q, mem: M, session_poller: P) -> Self {
+    pub fn new(device_path: PathBuf, evt_queue: Q, mem: M, mapper: HM, session_poller: P) -> Self {
         Self {
             mem,
             evt_queue,
             session_poller,
+            mapper,
             device_path,
             mmap_buffers: Default::default(),
         }
@@ -664,10 +669,11 @@ where
     }
 }
 
-impl<Q, M, P> VirtioMediaIoctlHandler for V4l2ProxyDevice<Q, M, P>
+impl<Q, M, HM, P> VirtioMediaIoctlHandler for V4l2ProxyDevice<Q, M, HM, P>
 where
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
+    HM: VirtioMediaHostMemoryMapper,
     P: SessionPoller,
 {
     type Session = V4l2Session<M>;
@@ -1320,10 +1326,11 @@ where
     }
 }
 
-impl<Q, M, P, Reader, Writer> VirtioMediaDevice<Reader, Writer> for V4l2ProxyDevice<Q, M, P>
+impl<Q, M, HM, P, Reader, Writer> VirtioMediaDevice<Reader, Writer> for V4l2ProxyDevice<Q, M, HM, P>
 where
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
+    HM: VirtioMediaHostMemoryMapper,
     P: SessionPoller,
     Reader: std::io::Read,
     Writer: std::io::Write,
@@ -1351,10 +1358,9 @@ where
         self.delete_session(&session)
     }
 
-    fn do_mmap<HM: VirtioMediaHostMemoryMapper>(
+    fn do_mmap(
         &mut self,
         session: &mut Self::Session,
-        mapper: &mut HM,
         flags: u32,
         offset: u64,
         writer: &mut Writer,
@@ -1383,7 +1389,10 @@ where
             };
 
             plane_info.map_address =
-                match mapper.add_mapping(buf_desc, plane_info.length as u64, offset, rw) {
+                match self
+                    .mapper
+                    .add_mapping(buf_desc, plane_info.length as u64, offset, rw)
+                {
                     Ok(offset) => offset,
                     Err(e) => {
                         warn!(
@@ -1401,12 +1410,7 @@ where
         writer.write_response(MmapResp::ok(plane_info.map_address, length))
     }
 
-    fn do_munmap<HM: VirtioMediaHostMemoryMapper>(
-        &mut self,
-        mapper: &mut HM,
-        guest_addr: u64,
-        writer: &mut Writer,
-    ) -> IoResult<()> {
+    fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {
         let (&offset, plane_info) = match self
             .mmap_buffers
             .iter_mut()
@@ -1419,11 +1423,10 @@ where
         if plane_info.map_count == 0 {
             return writer.write_err_response(libc::EINVAL);
         }
-
         plane_info.map_count -= 1;
 
         if plane_info.map_count == 0 {
-            match mapper.remove_mapping(offset) {
+            match self.mapper.remove_mapping(plane_info.map_address) {
                 Ok(()) => (),
                 Err(e) => {
                     warn!(

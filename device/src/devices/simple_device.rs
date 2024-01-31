@@ -204,10 +204,11 @@ impl SimpleCaptureDeviceSession {
 ///
 /// This device supports a single pixel format (`RGB3`) and a single resolution, and generates
 /// frames of varying uniform color. The only buffer type supported is `MMAP`
-pub struct SimpleCaptureDevice<Q: VirtioMediaEventQueue> {
+pub struct SimpleCaptureDevice<Q: VirtioMediaEventQueue, HM: VirtioMediaHostMemoryMapper> {
     /// Queue used to send events to the guest.
-    #[allow(dead_code)]
     evt_queue: Q,
+    /// Mapper for host to guest MMAP buffer mappings.
+    mapper: HM,
     /// Addresses at which MMAP buffers are mapped into the guest.
     ///
     /// [`BufferMmap`]s are shared with the [`Buffer`] they originated from.
@@ -221,22 +222,25 @@ pub struct SimpleCaptureDevice<Q: VirtioMediaEventQueue> {
     active_session: Option<u32>,
 }
 
-impl<Q> SimpleCaptureDevice<Q>
+impl<Q, HM> SimpleCaptureDevice<Q, HM>
 where
     Q: VirtioMediaEventQueue,
+    HM: VirtioMediaHostMemoryMapper,
 {
-    pub fn new(evt_queue: Q) -> Self {
+    pub fn new(evt_queue: Q, mapper: HM) -> Self {
         Self {
             evt_queue,
+            mapper,
             mmap_mappings: Default::default(),
             active_session: None,
         }
     }
 }
 
-impl<Q, Reader, Writer> VirtioMediaDevice<Reader, Writer> for SimpleCaptureDevice<Q>
+impl<Q, HM, Reader, Writer> VirtioMediaDevice<Reader, Writer> for SimpleCaptureDevice<Q, HM>
 where
     Q: VirtioMediaEventQueue,
+    HM: VirtioMediaHostMemoryMapper,
     Reader: std::io::Read,
     Writer: std::io::Write,
 {
@@ -268,10 +272,9 @@ where
         virtio_media_dispatch_ioctl(self, session, ioctl, reader, writer)
     }
 
-    fn do_mmap<M: VirtioMediaHostMemoryMapper>(
+    fn do_mmap(
         &mut self,
         session: &mut Self::Session,
-        mapper: &mut M,
         flags: u32,
         offset: u64,
         writer: &mut Writer,
@@ -293,7 +296,8 @@ where
                 guest_addr
             }
             None => {
-                let guest_addr = mapper
+                let guest_addr = self
+                    .mapper
                     .add_mapping(
                         buffer.fd.as_file().try_clone().unwrap(),
                         buffer.size,
@@ -314,12 +318,7 @@ where
         writer.write_response(MmapResp::ok(guest_addr, buffer.size))
     }
 
-    fn do_munmap<M: VirtioMediaHostMemoryMapper>(
-        &mut self,
-        mapper: &mut M,
-        guest_addr: u64,
-        writer: &mut Writer,
-    ) -> IoResult<()> {
+    fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {
         if let Some((offset, mapping)) = self.mmap_mappings.iter().find(|(_, mapping)| {
             mapping
                 .borrow()
@@ -338,7 +337,7 @@ where
                     // If this was the last mapping, remove it.
                     *mmap = None;
 
-                    let ret = match mapper.remove_mapping(*offset) {
+                    let ret = match self.mapper.remove_mapping(*offset) {
                         Ok(()) => writer.write_response(MunmapResp::ok()),
                         Err(e) => {
                             log::warn!(
@@ -401,9 +400,10 @@ fn default_fmt(queue: QueueType) -> v4l2_format {
 }
 
 /// Implementations of the ioctls required by a CAPTURE device.
-impl<Q> VirtioMediaIoctlHandler for SimpleCaptureDevice<Q>
+impl<Q, HM> VirtioMediaIoctlHandler for SimpleCaptureDevice<Q, HM>
 where
     Q: VirtioMediaEventQueue,
+    HM: VirtioMediaHostMemoryMapper,
 {
     type Session = SimpleCaptureDeviceSession;
 

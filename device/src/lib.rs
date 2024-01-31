@@ -225,10 +225,9 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
     /// propagated to the guest.
     //
     // TODO flags should be a dedicated enum?
-    fn do_mmap<M: VirtioMediaHostMemoryMapper>(
+    fn do_mmap(
         &mut self,
         session: &mut Self::Session,
-        mapper: &mut M,
         flags: u32,
         offset: u64,
         writer: &mut Writer,
@@ -237,12 +236,7 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
     ///
     /// Only returns an error if the response could not be properly written ; all other errors are
     /// propagated to the guest.
-    fn do_munmap<M: VirtioMediaHostMemoryMapper>(
-        &mut self,
-        mapper: &mut M,
-        guest_addr: u64,
-        writer: &mut Writer,
-    ) -> IoResult<()>;
+    fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()>;
 }
 
 /// Wrapping structure for a `VirtioMediaDevice` managing its sessions and providing methods for
@@ -281,12 +275,7 @@ where
     /// This method never returns an error, as doing so would halt the worker thread. All errors
     /// are propagated to the guest, with the exception of errors triggered while writing the
     /// response which are logged on the host side.
-    pub fn handle_command<M: VirtioMediaHostMemoryMapper>(
-        &mut self,
-        reader: &mut Reader,
-        writer: &mut Writer,
-        mapper: &mut M,
-    ) {
+    pub fn handle_command(&mut self, reader: &mut Reader, writer: &mut Writer) {
         let hdr: CmdHeader = match reader.read_obj() {
             Ok(hdr) => hdr,
             Err(e) => {
@@ -345,9 +334,7 @@ where
                          offset,
                      }| {
                         match self.sessions.get_mut(&session_id) {
-                            Some(session) => {
-                                self.device.do_mmap(session, mapper, flags, offset, writer)
-                            }
+                            Some(session) => self.device.do_mmap(session, flags, offset, writer),
 
                             None => writer.write_err_response(libc::EINVAL),
                         }
@@ -359,7 +346,7 @@ where
                 .context("while reading UNMMAP command")
                 .and_then(|MunmapCmd { guest_addr }| {
                     self.device
-                        .do_munmap(mapper, guest_addr, writer)
+                        .do_munmap(guest_addr, writer)
                         .context("while writing response for MUNMAP command")
                 }),
             _ => writer
