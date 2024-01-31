@@ -7,15 +7,12 @@
 //! This module illustrates how to write a device for virtio-media. It exposes a capture device
 //! that generates a RGB pattern on the buffers queued by the guest.
 
-use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::io::BufWriter;
 use std::io::Result as IoResult;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
-use std::rc::Rc;
 
 use memfd::Memfd;
 use v4l2r::bindings;
@@ -34,6 +31,7 @@ use v4l2r::QueueType;
 use crate::ioctl::virtio_media_dispatch_ioctl;
 use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
+use crate::mmap::MmapMappingManager;
 use crate::protocol::DequeueBufferEvent;
 use crate::protocol::MmapResp;
 use crate::protocol::MunmapResp;
@@ -60,15 +58,6 @@ enum BufferState {
     },
 }
 
-/// Information about a MMAP buffer being mapped into the guest.
-struct BufferMmap {
-    /// Address the buffer has been mapped to inside the guest.
-    guest_addr: u64,
-    /// Number of times mmap has been performed for this buffer. The mapping remains alive until
-    /// this reaches zero.
-    num_mappings: usize,
-}
-
 /// Information about a single buffer.
 struct Buffer {
     /// Current state of the buffer.
@@ -83,11 +72,9 @@ struct Buffer {
     size: u64,
     /// Offset that can be used to map the buffer.
     offset: u64,
-    /// Set to (guest address, num of mappings) if the buffer is of MMAP type and is currently
-    /// mapped into the guest address space.
-    ///
-    /// We use a shared reference here because `munmap` might need to reset this to `None`.
-    mmap: Rc<RefCell<Option<BufferMmap>>>,
+    /// `true` if the buffer is MMAP and is currently mapped into the guest memory space.
+    /// TODO find a good way to set this properly.
+    mapped: bool,
 }
 
 impl Buffer {
@@ -108,7 +95,7 @@ impl Buffer {
                 BufferState::New => BufferFlags::empty(),
                 BufferState::Incoming => BufferFlags::QUEUED,
                 BufferState::Outgoing { .. } => BufferFlags::empty(),
-            } | if self.mmap.borrow().is_some() {
+            } | if self.mapped {
                 BufferFlags::MAPPED
             } else {
                 BufferFlags::empty()
@@ -207,12 +194,8 @@ impl SimpleCaptureDeviceSession {
 pub struct SimpleCaptureDevice<Q: VirtioMediaEventQueue, HM: VirtioMediaHostMemoryMapper> {
     /// Queue used to send events to the guest.
     evt_queue: Q,
-    /// Mapper for host to guest MMAP buffer mappings.
-    mapper: HM,
-    /// Addresses at which MMAP buffers are mapped into the guest.
-    ///
-    /// [`BufferMmap`]s are shared with the [`Buffer`] they originated from.
-    mmap_mappings: BTreeMap<u64, Rc<RefCell<Option<BufferMmap>>>>,
+    /// Host MMAP mapping manager.
+    mmap_manager: MmapMappingManager<HM>,
     /// ID of the session with allocated buffers, if any.
     ///
     /// v4l2-compliance checks that only a single session can have allocated buffers at a given
@@ -230,8 +213,7 @@ where
     pub fn new(evt_queue: Q, mapper: HM) -> Self {
         Self {
             evt_queue,
-            mapper,
-            mmap_mappings: Default::default(),
+            mmap_manager: MmapMappingManager::new(mapper),
             active_session: None,
         }
     }
@@ -260,6 +242,10 @@ where
         if self.active_session == Some(session.id) {
             self.active_session = None;
         }
+
+        for buffer in &session.buffers {
+            self.mmap_manager.unregister_buffer(buffer.offset)
+        }
     }
 
     fn do_ioctl(
@@ -284,85 +270,23 @@ where
             None => return writer.write_err_response(libc::EINVAL),
         };
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
-
-        let mut mmap = buffer.mmap.borrow_mut();
-
-        let guest_addr = match *mmap {
-            Some(BufferMmap {
-                guest_addr,
-                ref mut num_mappings,
-            }) => {
-                *num_mappings += 1;
-                guest_addr
-            }
-            None => {
-                let guest_addr = self
-                    .mapper
-                    .add_mapping(
-                        buffer.fd.as_file().try_clone().unwrap(),
-                        buffer.size,
-                        offset,
-                        rw,
-                    )
-                    .unwrap();
-                *mmap = Some(BufferMmap {
-                    guest_addr,
-                    num_mappings: 1,
-                });
-                self.mmap_mappings.insert(offset, buffer.mmap.clone());
-
-                guest_addr
-            }
-        };
+        let guest_addr =
+            match self
+                .mmap_manager
+                .create_mapping(offset, buffer.fd.as_file(), buffer.size, rw)
+            {
+                Ok(mapping) => mapping,
+                Err(_) => return writer.write_err_response(libc::EINVAL),
+            };
 
         writer.write_response(MmapResp::ok(guest_addr, buffer.size))
     }
 
     fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {
-        if let Some((offset, mapping)) = self.mmap_mappings.iter().find(|(_, mapping)| {
-            mapping
-                .borrow()
-                .as_ref()
-                .map(|mapping| mapping.guest_addr == guest_addr)
-                .unwrap_or(false)
-        }) {
-            let mut mmap = mapping.borrow_mut();
-            if let Some(BufferMmap {
-                ref mut num_mappings,
-                ..
-            }) = *mmap
-            {
-                *num_mappings -= 1;
-                if *num_mappings == 0 {
-                    // If this was the last mapping, remove it.
-                    *mmap = None;
-
-                    let ret = match self.mapper.remove_mapping(*offset) {
-                        Ok(()) => writer.write_response(MunmapResp::ok()),
-                        Err(e) => {
-                            log::warn!(
-                                "could not unmap host buffer with offset 0x{:x}: {:#}",
-                                guest_addr,
-                                e
-                            );
-                            writer.write_err_response(libc::EINVAL)
-                        }
-                    };
-
-                    // Stop borrowing `mmap_mappings`.
-                    let offset = *offset;
-                    drop(mmap);
-                    let _ = self.mmap_mappings.remove(&offset);
-
-                    return ret;
-                } else {
-                    // Otherwise, keep the mapping.
-                    return writer.write_response(MunmapResp::ok());
-                }
-            }
+        match self.mmap_manager.remove_mapping(guest_addr) {
+            Ok(_) => writer.write_response(MunmapResp::ok()),
+            Err(_) => writer.write_err_response(libc::EINVAL),
         }
-
-        writer.write_err_response(libc::EINVAL)
     }
 }
 
@@ -371,6 +295,13 @@ const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
 const BYTES_PER_LINE: u32 = WIDTH * 3;
 const BUFFER_SIZE: u32 = BYTES_PER_LINE * HEIGHT;
+
+const INPUTS: [bindings::v4l2_input; 1] = [bindings::v4l2_input {
+    index: 0,
+    name: *b"Default\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
+    type_: bindings::V4L2_INPUT_TYPE_CAMERA,
+    ..unsafe { std::mem::zeroed() }
+}];
 
 fn default_fmtdesc(queue: QueueType) -> v4l2_fmtdesc {
     v4l2_fmtdesc {
@@ -500,6 +431,10 @@ where
 
         let count = std::cmp::min(count, 32);
 
+        for buffer in &session.buffers {
+            self.mmap_manager.unregister_buffer(buffer.offset)
+        }
+
         session.buffers = (0..count)
             .map(|i| {
                 let fd = memfd::MemfdOptions::default()
@@ -514,10 +449,15 @@ where
                     fd,
                     size: BUFFER_SIZE as u64,
                     offset: i as u64 * BUFFER_SIZE as u64,
-                    mmap: Rc::new(RefCell::new(None)),
+                    mapped: false,
                 }
             })
             .collect();
+
+        for buffer in &session.buffers {
+            self.mmap_manager
+                .register_buffer(buffer.offset, buffer.size)?;
+        }
 
         Ok(v4l2_requestbuffers {
             count,
@@ -612,15 +552,9 @@ where
         _session: &mut Self::Session,
         index: u32,
     ) -> IoctlResult<bindings::v4l2_input> {
-        if index != 0 {
-            Err(libc::EINVAL)
-        } else {
-            Ok(bindings::v4l2_input {
-                index: 0,
-                name: *b"Default\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
-                type_: bindings::V4L2_INPUT_TYPE_CAMERA,
-                ..Default::default()
-            })
+        match INPUTS.get(index as usize) {
+            Some(&input) => Ok(input),
+            None => Err(libc::EINVAL),
         }
     }
 }
