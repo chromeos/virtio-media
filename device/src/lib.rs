@@ -168,8 +168,8 @@ pub trait VirtioMediaHostMemoryMapper {
     fn add_mapping(&mut self, buffer: File, length: u64, offset: u64, rw: bool)
         -> Result<u64, i32>;
 
-    /// Removes a guest mapping previously created at guest physical memory address `offset`.
-    fn remove_mapping(&mut self, offset: u64) -> Result<(), i32>;
+    /// Removes a guest mapping previously created at guest physical memory address `guest_addr`.
+    fn remove_mapping(&mut self, guest_addr: u64) -> Result<(), i32>;
 }
 
 /// No-op implementation of `VirtioMediaHostMemoryMapper`. Can be used for testing purposes or when
