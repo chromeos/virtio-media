@@ -46,6 +46,7 @@
 
 pub mod devices;
 pub mod ioctl;
+pub mod mmap;
 pub mod protocol;
 
 use std::collections::HashMap;
