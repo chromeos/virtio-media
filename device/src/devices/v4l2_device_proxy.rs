@@ -271,7 +271,7 @@ struct V4l2UserPlaneInfo<R> {
 }
 
 pub struct V4l2Session<M: VirtioMediaGuestMemoryMapper> {
-    pub id: u32,
+    id: u32,
     device: Arc<V4l2Device>,
 
     /// Type of the capture queue, if one has been set up.
