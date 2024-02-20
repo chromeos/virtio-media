@@ -74,6 +74,7 @@ use v4l2r::QueueType;
 use crate::ioctl::virtio_media_dispatch_ioctl;
 use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
+use crate::mmap::MmapMappingManager;
 use crate::protocol::DequeueBufferEvent;
 use crate::protocol::MmapResp;
 use crate::protocol::MunmapResp;
@@ -424,8 +425,8 @@ struct V4l2MmapPlaneInfo {
     plane: u8,
     /// Length of the plane in bytes.
     length: u32,
-    /// Number of times this buffer has been mapped.
-    map_count: usize,
+    /// Exported file descriptor, if a map into the guest has been requested.
+    exported_fd: Option<File>,
     /// Guest address at which the buffer has been mapped.
     map_address: u64,
     /// Whether the buffer is still active from the device's point of view.
@@ -446,11 +447,11 @@ pub struct V4l2ProxyDevice<
     evt_queue: Q,
     session_poller: P,
 
-    mapper: HM,
-
     /// Map of memory offsets to detailed buffer information. Only used for queues which memory
     /// type is MMAP.
     mmap_buffers: BTreeMap<u64, V4l2MmapPlaneInfo>,
+
+    mmap_manager: MmapMappingManager<HM>,
 }
 
 pub struct DequeueEventError(i32);
@@ -468,22 +469,22 @@ where
             mem,
             evt_queue,
             session_poller,
-            mapper,
             device_path,
             mmap_buffers: Default::default(),
+            mmap_manager: MmapMappingManager::new(mapper),
         }
     }
 
     fn delete_session(&mut self, session: &V4l2Session<M>) {
         // Mark all buffers from this session as being inactive.
-        for b in self.mmap_buffers.values_mut() {
-            if b.session_id == session.id {
-                b.active = false;
+        for (&offset, buffer) in self.mmap_buffers.iter_mut() {
+            if buffer.session_id == session.id {
+                self.mmap_manager.unregister_buffer(offset);
+                buffer.active = false;
             }
         }
         // Garbage-collect buffers that can be deleted.
-        self.mmap_buffers
-            .retain(|_, b| b.active || b.map_count != 0);
+        self.mmap_buffers.retain(|_, b| b.active);
 
         self.session_poller.remove_session(&session.device);
     }
@@ -497,10 +498,17 @@ where
         memory: MemoryType,
         range: std::ops::Range<u32>,
     ) {
+        // Remove buffers that have been deallocated.
         self.mmap_buffers
             .iter_mut()
             .filter(|(_, b)| b.session_id == session.id && b.queue == queue)
-            .for_each(|(_, b)| b.active = false);
+            .filter(|(_, b)| range.is_empty() || b.index as u32 >= range.start)
+            .for_each(|(&offset, b)| {
+                self.mmap_manager.unregister_buffer(offset);
+                b.active = false;
+            });
+        // Garbage-collect buffers that can be deleted.
+        self.mmap_buffers.retain(|_, b| b.active);
 
         if memory == MemoryType::Mmap {
             for i in range {
@@ -526,6 +534,10 @@ where
                         }
                     };
 
+                    self.mmap_manager
+                        .register_buffer(offset as u64, plane.length() as u64)
+                        .unwrap();
+
                     self.mmap_buffers.insert(
                         offset as u64,
                         V4l2MmapPlaneInfo {
@@ -534,8 +546,8 @@ where
                             index: buffer.index() as u8,
                             plane: j as u8,
                             length: plane.length(),
-                            map_count: 0,
                             map_address: 0,
+                            exported_fd: None,
                             active: true,
                         },
                     );
@@ -1372,77 +1384,64 @@ where
             None => return writer.write_err_response(libc::EINVAL),
         };
 
-        if plane_info.map_count == 0 {
-            let buf_desc = match v4l2r::ioctl::expbuf::<File>(
-                &session.device,
-                plane_info.queue,
-                plane_info.index as usize,
-                plane_info.plane as usize,
-                if rw {
-                    ExpbufFlags::RDWR
-                } else {
-                    ExpbufFlags::RDONLY
-                },
-            ) {
-                Ok(desc) => desc,
-                Err(e) => return writer.write_err_response(e.into_errno()),
-            };
-
-            plane_info.map_address =
-                match self
-                    .mapper
-                    .add_mapping(buf_desc, plane_info.length as u64, offset, rw)
-                {
-                    Ok(offset) => offset,
-                    Err(e) => {
-                        warn!(
-                            "cannot map host buffer into device shared memory region: {:#}",
-                            e
-                        );
-                        return writer.write_err_response(e);
-                    }
+        // Export the FD for the plane and cache it if needed.
+        let exported_fd = match &mut plane_info.exported_fd {
+            Some(fd) => fd,
+            None => {
+                let fd = match v4l2r::ioctl::expbuf::<File>(
+                    &session.device,
+                    plane_info.queue,
+                    plane_info.index as usize,
+                    plane_info.plane as usize,
+                    if rw {
+                        ExpbufFlags::RDWR
+                    } else {
+                        ExpbufFlags::RDONLY
+                    },
+                ) {
+                    Ok(desc) => desc,
+                    Err(e) => return writer.write_err_response(e.into_errno()),
                 };
-        }
 
-        plane_info.map_count += 1;
-        let length = plane_info.length as u64;
+                plane_info.exported_fd.get_or_insert(fd)
+            }
+        };
 
-        writer.write_response(MmapResp::ok(plane_info.map_address, length))
+        plane_info.map_address = match self.mmap_manager.create_mapping(
+            offset,
+            exported_fd,
+            plane_info.length as u64,
+            rw,
+        ) {
+            Ok(guest_addr) => guest_addr,
+            Err(e) => return writer.write_err_response(e),
+        };
+
+        writer.write_response(MmapResp::ok(
+            plane_info.map_address,
+            plane_info.length as u64,
+        ))
     }
 
     fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {
-        let (&offset, plane_info) = match self
-            .mmap_buffers
-            .iter_mut()
-            .find(|(_, entry)| entry.map_count > 0 && entry.map_address == guest_addr)
-        {
-            Some((offset, entry)) => (offset, entry),
-            None => return writer.write_err_response(libc::EINVAL),
-        };
-
-        if plane_info.map_count == 0 {
-            return writer.write_err_response(libc::EINVAL);
-        }
-        plane_info.map_count -= 1;
-
-        if plane_info.map_count == 0 {
-            match self.mapper.remove_mapping(plane_info.map_address) {
-                Ok(()) => (),
-                Err(e) => {
-                    warn!(
-                        "could not unmap host buffer with offset 0x{:x}: {:#}",
-                        offset, e
-                    );
-                    return writer.write_err_response(libc::EINVAL);
+        match self.mmap_manager.remove_mapping(guest_addr) {
+            Ok(has_mappings) => {
+                // Free the exported handle if this was the last mapping.
+                if !has_mappings {
+                    if let Some(entry) = self
+                        .mmap_buffers
+                        .iter_mut()
+                        .map(|(_, entry)| entry)
+                        .find(|entry| entry.map_address == guest_addr)
+                    {
+                        entry.exported_fd = None
+                    };
                 }
-            }
-            // Remove that entry if its map count is zero and it is not active per the device.
-            if !plane_info.active {
-                let _ = self.mmap_buffers.remove(&offset);
-            }
-        }
 
-        writer.write_response(MunmapResp::ok())
+                writer.write_response(MunmapResp::ok())
+            }
+            Err(e) => writer.write_err_response(e),
+        }
     }
 
     fn do_ioctl(
