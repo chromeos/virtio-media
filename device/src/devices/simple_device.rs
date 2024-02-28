@@ -437,22 +437,26 @@ where
 
         session.buffers = (0..count)
             .map(|i| {
-                let fd = memfd::MemfdOptions::default()
+                memfd::MemfdOptions::default()
                     .create(format!("simple device buffer {}", i))
-                    .unwrap();
-                fd.as_file().set_len(BUFFER_SIZE as u64).unwrap();
+                    .map_err(|_| libc::ENOMEM)
+                    .and_then(|fd| {
+                        fd.as_file()
+                            .set_len(BUFFER_SIZE as u64)
+                            .map_err(|_| libc::ENOMEM)?;
 
-                Buffer {
-                    state: BufferState::New,
-                    queue: QueueType::VideoCapture,
-                    index: i,
-                    fd,
-                    size: BUFFER_SIZE as u64,
-                    offset: i as u64 * BUFFER_SIZE as u64,
-                    mapped: false,
-                }
+                        Ok(Buffer {
+                            state: BufferState::New,
+                            queue: QueueType::VideoCapture,
+                            index: i,
+                            fd,
+                            size: BUFFER_SIZE as u64,
+                            offset: i as u64 * BUFFER_SIZE as u64,
+                            mapped: false,
+                        })
+                    })
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         for buffer in &session.buffers {
             self.mmap_manager
