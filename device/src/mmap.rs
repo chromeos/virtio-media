@@ -145,4 +145,9 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
             .map(|m| m.borrow().num_mappings > 0)
             .unwrap_or(false)
     }
+
+    /// Consume the mapping manager and return the mapper it has been constructed from.
+    pub fn into_mapper(self) -> M {
+        self.mapper
+    }
 }
