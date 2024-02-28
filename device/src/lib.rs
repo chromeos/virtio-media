@@ -253,20 +253,27 @@ where
     session_id_counter: u32,
 }
 
-impl<Reader, Writer, Device> VirtioMediaDeviceRunner<Reader, Writer, Device>
+impl<Reader, Writer, Device> From<Device> for VirtioMediaDeviceRunner<Reader, Writer, Device>
 where
     Reader: std::io::Read,
     Writer: std::io::Write,
     Device: VirtioMediaDevice<Reader, Writer>,
 {
-    pub fn new(device: Device) -> Self {
+    fn from(device: Device) -> Self {
         Self {
             device,
             sessions: Default::default(),
             session_id_counter: 0,
         }
     }
+}
 
+impl<Reader, Writer, Device> VirtioMediaDeviceRunner<Reader, Writer, Device>
+where
+    Reader: std::io::Read,
+    Writer: std::io::Write,
+    Device: VirtioMediaDevice<Reader, Writer>,
+{
     /// Handle a single command from the virtio queue.
     ///
     /// `reader` and `writer` are the device-readable and device-writable sections of the
