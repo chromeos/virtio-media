@@ -471,7 +471,7 @@ where
             session_poller,
             device_path,
             mmap_buffers: Default::default(),
-            mmap_manager: MmapMappingManager::new(mapper),
+            mmap_manager: MmapMappingManager::from(mapper),
         }
     }
 

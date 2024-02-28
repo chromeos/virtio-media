@@ -213,7 +213,7 @@ where
     pub fn new(evt_queue: Q, mapper: HM) -> Self {
         Self {
             evt_queue,
-            mmap_manager: MmapMappingManager::new(mapper),
+            mmap_manager: MmapMappingManager::from(mapper),
             active_session: None,
         }
     }

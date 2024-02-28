@@ -36,15 +36,17 @@ pub struct MmapMappingManager<M: VirtioMediaHostMemoryMapper> {
 // Rcs in this struct are never leaving and will thus all be moved to the target thread.
 unsafe impl<M: VirtioMediaHostMemoryMapper> Send for MmapMappingManager<M> {}
 
-impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
-    pub fn new(mapper: M) -> Self {
+impl<M: VirtioMediaHostMemoryMapper> From<M> for MmapMappingManager<M> {
+    fn from(mapper: M) -> Self {
         Self {
             buffers: Default::default(),
             mappings: Default::default(),
             mapper,
         }
     }
+}
 
+impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
     /// Registers a new buffer at `offset`. The buffer has no mapping initially.
     pub fn register_buffer(&mut self, offset: u64, _length: u64) -> IoctlResult<()> {
         if let std::collections::btree_map::Entry::Vacant(e) = self.buffers.entry(offset) {
