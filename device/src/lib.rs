@@ -367,4 +367,9 @@ where
             let _ = writer.write_err_response(libc::EINVAL);
         }
     }
+
+    /// Returns the device this runner has been created from.
+    pub fn into_device(self) -> Device {
+        self.device
+    }
 }
