@@ -138,11 +138,11 @@ pub trait VirtioMediaEventQueue {
 /// Trait enabling guest memory linear access for the device.
 ///
 /// Although the host can access the guest memory, it sometimes need to have a linear view of
-/// sparse areas. This trait provides an implementation to perform such mappings.
+/// sparse areas. This trait provides a way to perform such mappings.
 ///
-/// Note to devices: `Self::GuestMemoryMapping` instances must be kept alive for as long as the
-/// device might access the memory to avoid race conditions, as some implementations might e.g.
-/// write back into the guest memory at destruction time.
+/// Note to devices: [`VirtioMediaGuestMemoryMapper::GuestMemoryMapping`] instances must be held
+/// for as long as the device might access the memory to avoid race conditions, as some
+/// implementations might e.g. write back into the guest memory at destruction time.
 pub trait VirtioMediaGuestMemoryMapper {
     /// Host-side linear mapping of sparse guest memory.
     type GuestMemoryMapping: AsRef<[u8]> + AsMut<[u8]>;
@@ -187,9 +187,10 @@ impl VirtioMediaHostMemoryMapper for () {
 
 /// Trait for implementing virtio-media devices.
 ///
-/// The preferred way to use this trait is to wrap implementations in a `VirtioMediaDeviceRunner`,
-/// which takes care of reading and dispatching commands. In addition, `VirtioMediaIoctlHandler`
-/// should also be used to automatically parse and dispatch ioctls.
+/// The preferred way to use this trait is to wrap implementations in a
+/// [`VirtioMediaDeviceRunner`], which takes care of reading and dispatching commands. In addition,
+/// [`ioctl::VirtioMediaIoctlHandler`] should also be used to automatically parse and dispatch
+/// ioctls.
 pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
     type Session;
 
@@ -202,7 +203,7 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
 
     /// Perform the IOCTL command and write the response into `writer`.
     ///
-    /// The flow for performing a given `ioctl`` is to read the parameters from `reader`, perform
+    /// The flow for performing a given `ioctl` is to read the parameters from `reader`, perform
     /// the operation, and then write the result on `writer`. Events triggered by a given ioctl can
     /// be queued on `evt_queue`.
     ///

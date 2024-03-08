@@ -21,10 +21,10 @@ pub struct MmapMapping {
 
 /// Range mananger for MMAP buffers, using a host memory mapper.
 ///
-/// Devices that allocate MMAP buffers can register their offset using [`register_offset`] and
-/// unregister then with [`unregister_buffer`]. Registered buffers can then be mapped into the
-/// guest address space by calling [`create_mapping`] on their offset. This will return the address
-/// of their guest mapping, which can then be accessed or used to unmap them with [`remove_mapping`].
+/// Devices that allocate MMAP buffers can register a buffer using [`Self::register_buffer`] and
+/// unregister them with [`Self::unregister_buffer`]. Registered buffers can then be mapped into the
+/// guest address space by calling [`Self::create_mapping`] on their offset. This will return the address
+/// of their guest mapping, which can then be accessed or used to unmap them with [`Self::remove_mapping`].
 pub struct MmapMappingManager<M: VirtioMediaHostMemoryMapper> {
     /// Maps V4L2 buffers offsets to their guest mapping, if they are mapped.
     buffers: BTreeMap<u64, Rc<RefCell<MmapMapping>>>,
@@ -61,14 +61,14 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
         let _ = self.buffers.remove(&offset);
     }
 
-    /// Create a new mapping of length [`size`] for the buffer registered at [`offset`]. [`rw`]
-    /// indicates whether the mapping is read-only or read-write.
+    /// Create a new mapping of length `size` for the buffer registered at `offset`. `rw` indicates
+    /// whether the mapping is read-only or read-write.
     ///
     /// This method can be called several times and will reuse the prior mapping if it exists. The
-    /// mapping will also persist until an identical number of calls to [`remove_mapping`] are
-    /// performed.
+    /// mapping will also persist until an identical number of calls to [`Self::remove_mapping`]
+    /// are performed.
     ///
-    /// Note however that requiring the same active mapping with different [`rw`] permissions will
+    /// Note however that requiring the same active mapping with different `rw` permissions will
     /// result in a `EPERM` error.
     pub fn create_mapping(
         &mut self,

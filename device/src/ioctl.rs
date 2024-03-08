@@ -65,7 +65,7 @@ use crate::ToDescriptorChain;
 use crate::WriteDescriptorChain;
 
 /// Module allowing select V4L2 structures from implementing zerocopy and implementations of
-/// `FromDescriptorChain` and `ToDescriptorChain` for them.
+/// [`FromDescriptorChain`] and [`ToDescriptorChain`] for them.
 mod v4l2_zerocopy {
     use v4l2r::bindings;
     use zerocopy::AsBytes;
@@ -109,7 +109,7 @@ mod v4l2_zerocopy {
         }
     }
 
-    /// Trait granting implementations of `FromDescriptorChain` and `ToDescriptorChain` to
+    /// Trait granting implementations of [`FromDescriptorChain`] and [`ToDescriptorChain`] to
     /// implementors.
     ///
     /// # Safety
@@ -185,10 +185,10 @@ pub type IoctlResult<T> = Result<T, i32>;
 
 /// Trait for implementing ioctls supported by a device.
 ///
-/// All ioctls have a default implementation provided that returns the error code for an
-/// unsupported ioctl to the driver. This means that a device just needs to implement this trait
-/// and override the ioctls it supports in order to provide a working implementation. All parsing
-/// and input validation is done by the companion struct `VirtioMediaIoctlDispatcher`.
+/// It provides a default implementation for all ioctls that returns the error code for an
+/// unsupported ioctl (`ENOTTY`) to the driver. This means that a device just needs to implement
+/// this trait and override the ioctls it supports in order to provide the expected behavior. All
+/// parsing and input validation is done by the companion function [`virtio_media_dispatch_ioctl`].
 #[allow(unused_variables)]
 pub trait VirtioMediaIoctlHandler {
     type Session;
@@ -636,6 +636,7 @@ fn invalid_ioctl<W: std::io::Write>(code: V4l2Ioctl, writer: &mut W) -> IoResult
     })
 }
 
+/// Reads a SG list of guest physical addresses passed from the driver and returns it.
 fn get_userptr_regions<R: std::io::Read>(r: &mut R, size: usize) -> anyhow::Result<Vec<SgEntry>> {
     let mut bytes_taken = 0;
     let mut res = Vec::new();
@@ -649,6 +650,8 @@ fn get_userptr_regions<R: std::io::Read>(r: &mut R, size: usize) -> anyhow::Resu
     Ok(res)
 }
 
+/// Allows to easily read a `v4l2_buffer` of `USERPTR` memory type and its associated guest-side
+/// buffers from a descriptor chain.
 impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
     fn read_from_chain<R: std::io::Read>(reader: &mut R) -> IoResult<Self>
     where
@@ -712,6 +715,8 @@ impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
     }
 }
 
+/// Write a `v4l2_buffer` to a descriptor chain, while ensuring the number of planes written is not
+/// larger than a limit (i.e. the maximum number of planes that the descriptor chain can receive).
 impl ToDescriptorChain for (V4l2Buffer, usize) {
     fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let buffer = &self.0;
@@ -730,6 +735,8 @@ impl ToDescriptorChain for (V4l2Buffer, usize) {
     }
 }
 
+/// Allows to easily read a `v4l2_ext_controls` struct, its array of controls, and the SG list of
+/// the buffers pointed to by the controls from a descriptor chain.
 impl FromDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>, Vec<Vec<SgEntry>>) {
     fn read_from_chain<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self>
     where
@@ -755,6 +762,8 @@ impl FromDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>, Vec<Vec<
     }
 }
 
+/// Allows to easily write a `v4l2_ext_controls` struct and its array of controls to a descriptor
+/// chain.
 impl ToDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>) {
     fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let (ctrls, ctrl_array) = self;
@@ -769,6 +778,15 @@ impl ToDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>) {
     }
 }
 
+/// Implements a `WR` ioctl for which errors may also carry a payload.
+///
+/// * `Reader` is the reader to the device-readable part of the descriptor chain,
+/// * `Writer` is the writer to the device-writable part of the descriptor chain,
+/// * `I` is the data to be read from the descriptor chain,
+/// * `O` is the type of response to be written to the descriptor chain for both success and
+/// failure,
+/// * `X` processes the input and produces a result. In case of failure, an error code and optional
+/// payload to write along with it are returned.
 fn wr_ioctl_with_err_payload<Reader, Writer, I, O, X>(
     ioctl: V4l2Ioctl,
     reader: &mut Reader,
@@ -803,6 +821,14 @@ where
     Ok(())
 }
 
+/// Implements a `WR` ioctl for which errors do not carry a payload.
+///
+/// * `Reader` is the reader to the device-readable part of the descriptor chain,
+/// * `Writer` is the writer to the device-writable part of the descriptor chain,
+/// * `I` is the data to be read from the descriptor chain,
+/// * `O` is the type of response to be written to the descriptor chain in case of success,
+/// * `X` processes the input and produces a result. In case of failure, an error code to transmit
+/// to the guest is returned.
 fn wr_ioctl<Reader, Writer, I, O, X>(
     ioctl: V4l2Ioctl,
     reader: &mut Reader,
@@ -821,6 +847,12 @@ where
     })
 }
 
+/// Implements a `W` ioctl.
+///
+/// * `Reader` is the reader to the device-readable part of the descriptor chain,
+/// * `I` is the data to be read from the descriptor chain,
+/// * `X` processes the input. In case of failure, an error code to transmit to the guest is
+/// returned.
 fn w_ioctl<Reader, Writer, I, X>(
     ioctl: V4l2Ioctl,
     reader: &mut Reader,
@@ -836,6 +868,12 @@ where
     wr_ioctl(ioctl, reader, writer, process)
 }
 
+/// Implements a `R` ioctl.
+///
+/// * `Writer` is the writer to the device-writable part of the descriptor chain,
+/// * `O` is the type of response to be written to the descriptor chain in case of success,
+/// * `X` runs the ioctl and produces a result. In case of failure, an error code to transmit to
+/// the guest is returned.
 fn r_ioctl<Writer, O, X>(ioctl: V4l2Ioctl, writer: &mut Writer, process: X) -> IoResult<()>
 where
     Writer: std::io::Write,
@@ -845,8 +883,8 @@ where
     wr_ioctl(ioctl, &mut std::io::empty(), writer, |()| process())
 }
 
-/// Make sure the `readbuffers` and `writebuffers` members are zero since we do not expose the
-/// `READWRITE` capability.
+/// Ensures that the `readbuffers` and `writebuffers` members of a `v4l2_streamparm` are zero since
+/// we do not expose the `READWRITE` capability.
 fn patch_streamparm(mut parm: v4l2_streamparm) -> v4l2_streamparm {
     match QueueType::n(parm.type_)
         .unwrap_or(QueueType::VideoCapture)
@@ -859,12 +897,12 @@ fn patch_streamparm(mut parm: v4l2_streamparm) -> v4l2_streamparm {
     parm
 }
 
-/// IOCTL dispatcher for implementors of `VirtioMediaIoctlHandler`.
+/// IOCTL dispatcher for implementors of [`VirtioMediaIoctlHandler`].
 ///
 /// This function takes care of reading and validating IOCTL inputs and writing outputs or errors
 /// back to the driver, invoking the relevant method of the handler in the middle.
 ///
-/// Implementors of `VirtioMediaIoctlHandler` can thus just focus on writing the desired behavior
+/// Implementors of [`VirtioMediaIoctlHandler`] can thus just focus on writing the desired behavior
 /// for their device, and let the more tedious parsing and validation to this function.
 pub fn virtio_media_dispatch_ioctl<S, H, Reader, Writer>(
     handler: &mut H,
