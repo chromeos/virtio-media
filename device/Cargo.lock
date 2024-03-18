@@ -156,7 +156,8 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 [[package]]
 name = "v4l2r"
 version = "0.0.1"
-source = "git+https://github.com/Gnurou/v4l2r?rev=acc87cf248#acc87cf248634e7216e56feb9658e69a0ce25d9d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec02d8bdd9ba0e2cc60c11ae1971ad73a157e510a3e34305fdc5f1ac5ae43700"
 dependencies = [
  "anyhow",
  "bitflags",
