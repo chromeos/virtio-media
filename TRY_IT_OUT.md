@@ -151,15 +151,25 @@ The simple virtio-media device should have been detected and become visible as
 `/dev/video0`. Let's see if it works:
 
 ```console
-# v4l2-compliance -d0 -s
+v4l2-compliance -d0 -s
+```
+
+This should display a long list of tests ending with:
+
+```console
 ...
 Total for virtio_media device /dev/video0: 54, Succeeded: 54, Failed: 0, Warnings: 1
 ```
 
-We can also check its supported capture formats, and see it only supports RGB:
+We can also check its supported capture formats:
 
 ```console
-# v4l2-ctl -d0 --list-formats
+v4l2-ctl -d0 --list-formats
+```
+
+which informs us that our device only supports `RGB3`:
+
+```console
 ioctl: VIDIOC_ENUM_FMT
         Type: Video Capture
 
