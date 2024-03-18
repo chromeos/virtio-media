@@ -5,6 +5,8 @@ set of host-side devices for virtualizing media devices using virtio, following
 the same model (and structures) as V4L2. It can be used to virtualize cameras,
 codec devices, or any other device supported by V4L2.
 
+Want to try it? See [[TRY_IT_OUT.md]].
+
 V4L2 is a UAPI that allows a less privileged entity (user-space) to use video
 hardware exposed by a more privileged entity (the kernel). Virtio-media is an
 encapsulation of this API into virtio, turning it into a virtualization API for
