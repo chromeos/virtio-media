@@ -204,9 +204,13 @@ pub trait VirtioMediaIoctlHandler {
     fn g_fmt(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
     }
+    /// Hook for the `VIDIOC_S_FMT` ioctl.
+    ///
+    /// `queue` is guaranteed to match `format.type_`.
     fn s_fmt(
         &mut self,
         session: &mut Self::Session,
+        queue: QueueType,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
@@ -403,9 +407,13 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
+    /// Hook for the `VIDIOC_TRY_FMT` ioctl.
+    ///
+    /// `queue` is guaranteed to match `format.type_`.
     fn try_fmt(
         &mut self,
         session: &mut Self::Session,
+        queue: QueueType,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
@@ -929,8 +937,8 @@ where
             handler.g_fmt(session, queue)
         }),
         VIDIOC_S_FMT => wr_ioctl(ioctl, reader, writer, |format: v4l2_format| {
-            let _ = QueueType::n(format.type_).ok_or(libc::EINVAL)?;
-            handler.s_fmt(session, format)
+            let queue = QueueType::n(format.type_).ok_or(libc::EINVAL)?;
+            handler.s_fmt(session, queue, format)
         }),
         VIDIOC_REQBUFS => wr_ioctl(ioctl, reader, writer, |reqbufs: v4l2_requestbuffers| {
             let queue = QueueType::n(reqbufs.type_).ok_or(libc::EINVAL)?;
@@ -1075,7 +1083,8 @@ where
         VIDIOC_S_JPEGCOMP => invalid_ioctl(ioctl, writer),
         VIDIOC_QUERYSTD => r_ioctl(ioctl, writer, || handler.querystd(session)),
         VIDIOC_TRY_FMT => wr_ioctl(ioctl, reader, writer, |format: v4l2_format| {
-            handler.try_fmt(session, format)
+            let queue = QueueType::n(format.type_).ok_or(libc::EINVAL)?;
+            handler.try_fmt(session, queue, format)
         }),
         VIDIOC_ENUMAUDIO => wr_ioctl(ioctl, reader, writer, |audio: v4l2_audio| {
             handler.enumaudio(session, audio.index)

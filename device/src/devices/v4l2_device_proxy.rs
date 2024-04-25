@@ -706,6 +706,7 @@ where
     fn s_fmt(
         &mut self,
         session: &mut Self::Session,
+        _queue: QueueType,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         v4l2r::ioctl::s_fmt(&mut session.device, format).map_err(IntoErrno::into_errno)
@@ -1054,6 +1055,7 @@ where
     fn try_fmt(
         &mut self,
         session: &mut Self::Session,
+        _queue: QueueType,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         v4l2r::ioctl::try_fmt::<_, v4l2_format>(&session.device, format).map_err(|e| e.into_errno())

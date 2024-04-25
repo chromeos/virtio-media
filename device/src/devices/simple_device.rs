@@ -369,9 +369,9 @@ where
     fn s_fmt(
         &mut self,
         _session: &mut Self::Session,
-        format: v4l2_format,
+        queue: QueueType,
+        _format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
-        let queue = QueueType::n(format.type_).ok_or(libc::EINVAL)?;
         if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
@@ -382,10 +382,9 @@ where
     fn try_fmt(
         &mut self,
         _session: &mut Self::Session,
-        format: v4l2_format,
+        queue: QueueType,
+        _format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
-        // TODO pass the validated queue to these hooks?
-        let queue = QueueType::n(format.type_).ok_or(libc::EINVAL)?;
         if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
