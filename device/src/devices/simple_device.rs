@@ -444,24 +444,23 @@ where
                             .set_len(BUFFER_SIZE as u64)
                             .map_err(|_| libc::ENOMEM)?;
 
+                        let offset = self
+                            .mmap_manager
+                            .register_buffer(None, BUFFER_SIZE as u64)
+                            .map_err(|_| libc::EINVAL)?;
+
                         Ok(Buffer {
                             state: BufferState::New,
                             queue: QueueType::VideoCapture,
                             index: i,
                             fd,
                             size: BUFFER_SIZE as u64,
-                            offset: i as u64 * BUFFER_SIZE as u64,
+                            offset,
                             mapped: false,
                         })
                     })
             })
             .collect::<Result<_, _>>()?;
-
-        for buffer in &session.buffers {
-            self.mmap_manager
-                .register_buffer(Some(buffer.offset), buffer.size)
-                .map_err(|_| libc::EINVAL)?;
-        }
 
         Ok(v4l2_requestbuffers {
             count,
