@@ -535,7 +535,7 @@ where
                     };
 
                     self.mmap_manager
-                        .register_buffer(offset as u64, plane.length() as u64)
+                        .register_buffer(Some(offset as u64), plane.length() as u64)
                         .unwrap();
 
                     self.mmap_buffers.insert(
@@ -1409,12 +1409,12 @@ where
             }
         };
 
-        plane_info.map_address = match self.mmap_manager.create_mapping(
-            offset,
-            exported_fd,
-            plane_info.length as u64,
-            rw,
-        ) {
+        plane_info.map_address = match self
+            .mmap_manager
+            .create_mapping(offset, exported_fd, plane_info.length as u64, rw)
+            // TODO: better error mapping?
+            .map_err(|_| libc::EINVAL)
+        {
             Ok(guest_addr) => guest_addr,
             Err(e) => return writer.write_err_response(e),
         };
@@ -1442,7 +1442,8 @@ where
 
                 writer.write_response(MunmapResp::ok())
             }
-            Err(e) => writer.write_err_response(e),
+            // TODO: better error mapping?
+            Err(_) => writer.write_err_response(libc::EINVAL),
         }
     }
 

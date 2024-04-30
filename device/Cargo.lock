@@ -176,6 +176,7 @@ dependencies = [
  "libc",
  "log",
  "memfd",
+ "thiserror",
  "v4l2r",
  "zerocopy",
 ]

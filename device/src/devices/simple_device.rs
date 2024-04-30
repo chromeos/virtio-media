@@ -244,7 +244,7 @@ where
         }
 
         for buffer in &session.buffers {
-            self.mmap_manager.unregister_buffer(buffer.offset)
+            self.mmap_manager.unregister_buffer(buffer.offset);
         }
     }
 
@@ -431,7 +431,7 @@ where
         let count = std::cmp::min(count, 32);
 
         for buffer in &session.buffers {
-            self.mmap_manager.unregister_buffer(buffer.offset)
+            self.mmap_manager.unregister_buffer(buffer.offset);
         }
 
         session.buffers = (0..count)
@@ -459,7 +459,8 @@ where
 
         for buffer in &session.buffers {
             self.mmap_manager
-                .register_buffer(buffer.offset, buffer.size)?;
+                .register_buffer(Some(buffer.offset), buffer.size)
+                .map_err(|_| libc::EINVAL)?;
         }
 
         Ok(v4l2_requestbuffers {
