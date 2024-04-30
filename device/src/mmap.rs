@@ -19,7 +19,7 @@ pub struct MmapMapping {
     rw: bool,
 }
 
-/// Range mananger for MMAP buffers, using a host memory mapper.
+/// Range manager for MMAP buffers, using a host memory mapper.
 ///
 /// Devices that allocate MMAP buffers can register a buffer using [`Self::register_buffer`] and
 /// unregister them with [`Self::unregister_buffer`]. Registered buffers can then be mapped into the
