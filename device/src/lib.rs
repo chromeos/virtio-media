@@ -60,8 +60,8 @@ use zerocopy::FromBytes;
 
 use protocol::*;
 
-/// Local trait for reading data from the device-readable section of a descriptor chain.
-trait ReadDescriptorChain {
+/// Extension trait for reading objects from the device-readable section of a descriptor chain.
+pub trait ReadDescriptorChain {
     fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T>;
 }
 
@@ -84,8 +84,9 @@ where
     }
 }
 
-/// Trait for writing data into the device-writable section of a descriptor chain.
-trait WriteDescriptorChain {
+/// Extension trait for writing objects and responses into the device-writable section of a
+/// descriptor chain.
+pub trait WriteDescriptorChain {
     /// Write an arbitrary object to the guest.
     fn write_obj<T: AsBytes>(&mut self, obj: &T) -> IoResult<()>;
 
