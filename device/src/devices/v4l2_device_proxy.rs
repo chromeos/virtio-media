@@ -454,8 +454,8 @@ pub struct V4l2ProxyDevice<
     mmap_manager: MmapMappingManager<HM>,
 }
 
-pub struct DequeueEventError(i32);
-pub struct DequeueBufferError(i32);
+pub struct DequeueEventError(pub i32);
+pub struct DequeueBufferError(pub i32);
 
 impl<Q, M, HM, P> V4l2ProxyDevice<Q, M, HM, P>
 where
