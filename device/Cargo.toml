@@ -15,7 +15,7 @@ libc = "0.2.151"
 thiserror = "1.0.38"
 zerocopy = { version = "0.7.31", features = ["derive"] }
 memfd = { version = "0.6.4", optional = true }
-v4l2r = "0.0.1"
+v4l2r = "0.0.2"
 
 [features]
 default = ["simple-device"]

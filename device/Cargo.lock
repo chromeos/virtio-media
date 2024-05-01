@@ -155,9 +155,9 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "v4l2r"
-version = "0.0.1"
+version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec02d8bdd9ba0e2cc60c11ae1971ad73a157e510a3e34305fdc5f1ac5ae43700"
+checksum = "901f4a4661af258462d8d4291626bf25748850b9e617d16a20d3961a1beb8a00"
 dependencies = [
  "anyhow",
  "bitflags",
