@@ -423,8 +423,6 @@ struct V4l2MmapPlaneInfo {
     index: u8,
     /// Plane index.
     plane: u8,
-    /// Length of the plane in bytes.
-    length: u32,
     /// Exported file descriptor, if a map into the guest has been requested.
     exported_fd: Option<File>,
     /// Guest address at which the buffer has been mapped.
@@ -545,7 +543,6 @@ where
                             queue,
                             index: buffer.index() as u8,
                             plane: j as u8,
-                            length: plane.length(),
                             map_address: 0,
                             exported_fd: None,
                             active: true,
@@ -1409,9 +1406,9 @@ where
             }
         };
 
-        plane_info.map_address = match self
+        let (mapping_addr, mapping_size) = match self
             .mmap_manager
-            .create_mapping(offset, exported_fd, plane_info.length as u64, rw)
+            .create_mapping(offset, exported_fd, rw)
             // TODO: better error mapping?
             .map_err(|_| libc::EINVAL)
         {
@@ -1419,10 +1416,8 @@ where
             Err(e) => return writer.write_err_response(e),
         };
 
-        writer.write_response(MmapResp::ok(
-            plane_info.map_address,
-            plane_info.length as u64,
-        ))
+        plane_info.map_address = mapping_addr;
+        writer.write_response(MmapResp::ok(mapping_addr, mapping_size))
     }
 
     fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {

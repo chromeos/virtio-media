@@ -201,8 +201,9 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
         Ok(())
     }
 
-    /// Create a new mapping of length `size` for the buffer registered at `offset`. `rw` indicates
-    /// whether the mapping is read-only or read-write.
+    /// Create a new mapping for the buffer registered at `offset`. `rw` indicates whether the
+    /// mapping is read-only or read-write. Returns the guest address at which the buffer is
+    /// mapped, and the size of the mapping, which should be equal to the size of the buffer.
     ///
     /// This method can be called several times and will reuse the prior mapping if it exists. The
     /// mapping will also persist until an identical number of calls to [`Self::remove_mapping`]
@@ -214,11 +215,8 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
         &mut self,
         offset: u64,
         fd: &File,
-        size: u64,
         rw: bool,
-    ) -> Result<u64, CreateMappingError> {
-        let last_buffer_address =
-            u32::try_from(offset + (size - 1)).map_err(|_| CreateMappingError::InvalidOffset)?;
+    ) -> Result<(u64, u64), CreateMappingError> {
         let offset = u32::try_from(offset).map_err(|_| CreateMappingError::InvalidOffset)?;
         // TODO: should be we able to map from the middle of a buffer?
         let buffer = self
@@ -226,6 +224,10 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
             .binary_search_by_key(&offset, |b| b.offset)
             .map(|i| &mut self.buffers[i])
             .map_err(|_| CreateMappingError::InvalidOffset)?;
+        let last_buffer_address = buffer
+            .offset
+            .checked_add(buffer.size - 1)
+            .ok_or(CreateMappingError::InvalidOffset)?;
 
         // Cannot create additional mappings for buffers that have been destroyed on the guest side.
         if !buffer.registered {
@@ -271,7 +273,7 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
             }
         };
 
-        Ok(guest_addr + (offset - buffer.offset) as u64)
+        Ok((guest_addr, buffer.size as u64))
     }
 
     /// Returns `true` if the buffer still has other mappings, `false` if this was the last mapping.
@@ -588,8 +590,8 @@ mod tests {
 
         // Single mapping
         assert_eq!(
-            mm.create_mapping(0x1000, &file, 0x5000, false),
-            Ok(0x8000_1000)
+            mm.create_mapping(0x1000, &file, false),
+            Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(mm.remove_mapping(0x8000_1000), Ok(false));
         assert_eq!(
@@ -599,12 +601,12 @@ mod tests {
 
         // Multiple mappings
         assert_eq!(
-            mm.create_mapping(0x1000, &file, 0x5000, false),
-            Ok(0x8000_1000)
+            mm.create_mapping(0x1000, &file, false),
+            Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(
-            mm.create_mapping(0x1000, &file, 0x5000, false),
-            Ok(0x8000_1000)
+            mm.create_mapping(0x1000, &file, false),
+            Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(mm.remove_mapping(0x8000_1000), Ok(true));
         assert_eq!(mm.remove_mapping(0x8000_1000), Ok(false));
@@ -615,31 +617,25 @@ mod tests {
 
         // Mapping at non-existing offset
         assert_eq!(
-            mm.create_mapping(0x2000, &file, 0x1000, false),
+            mm.create_mapping(0x2000, &file, false),
             Err(CreateMappingError::InvalidOffset)
         );
 
         // Requesting same mapping with different access
         assert_eq!(
-            mm.create_mapping(0x1000, &file, 0x5000, false),
-            Ok(0x8000_1000)
+            mm.create_mapping(0x1000, &file, false),
+            Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(
-            mm.create_mapping(0x1000, &file, 0x5000, true),
+            mm.create_mapping(0x1000, &file, true),
             Err(CreateMappingError::NonMatchingPermissions)
         );
         assert_eq!(mm.remove_mapping(0x8000_1000), Ok(false));
 
-        // Mapping that is too large
-        assert_eq!(
-            mm.create_mapping(0x1000, &file, 0x6000, false),
-            Err(CreateMappingError::SizeOutOfBounds)
-        );
-
         // Mappings must survive a buffer's deregistration
         assert_eq!(
-            mm.create_mapping(0x1000, &file, 0x5000, false),
-            Ok(0x8000_1000)
+            mm.create_mapping(0x1000, &file, false),
+            Ok((0x8000_1000, 0x5000))
         );
         assert!(mm.unregister_buffer(0x1000));
         assert_eq!(

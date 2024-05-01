@@ -265,21 +265,21 @@ where
         offset: u64,
         writer: &mut Writer,
     ) -> IoResult<()> {
-        let buffer = match session.buffers.iter_mut().find(|b| b.offset == offset) {
+        let buffer = match session.buffers.iter().find(|b| b.offset == offset) {
             Some(buffer) => buffer,
             None => return writer.write_err_response(libc::EINVAL),
         };
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
-        let guest_addr =
+        let (guest_addr, size) =
             match self
                 .mmap_manager
-                .create_mapping(offset, buffer.fd.as_file(), buffer.size, rw)
+                .create_mapping(offset, buffer.fd.as_file(), rw)
             {
                 Ok(mapping) => mapping,
                 Err(_) => return writer.write_err_response(libc::EINVAL),
             };
 
-        writer.write_response(MmapResp::ok(guest_addr, buffer.size))
+        writer.write_response(MmapResp::ok(guest_addr, size))
     }
 
     fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {
