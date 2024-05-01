@@ -13,6 +13,7 @@ use std::io::Result as IoResult;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
+use std::os::fd::AsFd;
 
 use memfd::Memfd;
 use v4l2r::bindings;
@@ -267,9 +268,10 @@ where
             .find(|b| b.offset == offset)
             .ok_or(libc::EINVAL)?;
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
+        let fd = buffer.fd.as_file().as_fd();
         let (guest_addr, size) = self
             .mmap_manager
-            .create_mapping(offset, buffer.fd.as_file(), rw)
+            .create_mapping(offset, fd, rw)
             .map_err(|_| libc::EINVAL)?;
 
         Ok((guest_addr, size))

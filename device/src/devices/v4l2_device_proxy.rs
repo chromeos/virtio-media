@@ -5,8 +5,9 @@
 //! This module uses `v4l2r` to proxy a host V4L2 device into the guest.
 
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::io::Result as IoResult;
+use std::os::fd::AsFd;
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -421,7 +422,7 @@ struct V4l2MmapPlaneInfo {
     /// Plane index.
     plane: u8,
     /// Exported file descriptor, if a map into the guest has been requested.
-    exported_fd: Option<File>,
+    exported_fd: Option<OwnedFd>,
     /// Guest address at which the buffer has been mapped.
     map_address: u64,
     /// Whether the buffer is still active from the device's point of view.
@@ -1380,7 +1381,7 @@ where
         let exported_fd = match &mut plane_info.exported_fd {
             Some(fd) => fd,
             None => {
-                let fd = v4l2r::ioctl::expbuf::<File>(
+                let fd = v4l2r::ioctl::expbuf::<OwnedFd>(
                     &session.device,
                     plane_info.queue,
                     plane_info.index as usize,
@@ -1399,7 +1400,7 @@ where
 
         let (mapping_addr, mapping_size) = self
             .mmap_manager
-            .create_mapping(offset, exported_fd, rw)
+            .create_mapping(offset, exported_fd.as_fd(), rw)
             // TODO: better error mapping?
             .map_err(|_| libc::EINVAL)?;
 

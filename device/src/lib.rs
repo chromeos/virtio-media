@@ -50,8 +50,8 @@ pub mod mmap;
 pub mod protocol;
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Result as IoResult;
+use std::os::fd::BorrowedFd;
 
 use anyhow::Context;
 use log::error;
@@ -167,8 +167,13 @@ pub trait VirtioMediaHostMemoryMapper {
     ///
     /// Returns the guest physical address of the start of the mapped memory on success, or a
     /// `libc` error code in case of failure.
-    fn add_mapping(&mut self, buffer: File, length: u64, offset: u64, rw: bool)
-        -> Result<u64, i32>;
+    fn add_mapping(
+        &mut self,
+        buffer: BorrowedFd,
+        length: u64,
+        offset: u64,
+        rw: bool,
+    ) -> Result<u64, i32>;
 
     /// Removes a guest mapping previously created at guest physical memory address `guest_addr`.
     fn remove_mapping(&mut self, guest_addr: u64) -> Result<(), i32>;
@@ -177,7 +182,7 @@ pub trait VirtioMediaHostMemoryMapper {
 /// No-op implementation of `VirtioMediaHostMemoryMapper`. Can be used for testing purposes or when
 /// it is not needed to map `MMAP` buffers into the guest.
 impl VirtioMediaHostMemoryMapper for () {
-    fn add_mapping(&mut self, _: File, _: u64, _: u64, _: bool) -> Result<u64, i32> {
+    fn add_mapping(&mut self, _: BorrowedFd, _: u64, _: u64, _: bool) -> Result<u64, i32> {
         Err(libc::ENOTTY)
     }
 

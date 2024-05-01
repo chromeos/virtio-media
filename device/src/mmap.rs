@@ -1,6 +1,6 @@
 // Copyright 2024 The ChromiumOS Authors
 
-use std::fs::File;
+use std::os::fd::BorrowedFd;
 
 use thiserror::Error;
 
@@ -214,7 +214,7 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
     pub fn create_mapping(
         &mut self,
         offset: u64,
-        fd: &File,
+        fd: BorrowedFd,
         rw: bool,
     ) -> Result<(u64, u64), CreateMappingError> {
         let offset = u32::try_from(offset).map_err(|_| CreateMappingError::InvalidOffset)?;
@@ -244,8 +244,7 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
                 let guest_addr = self
                     .mapper
                     .add_mapping(
-                        fd.try_clone()
-                            .map_err(|e| CreateMappingError::FdCloneFailure(e.kind()))?,
+                        fd,
                         // Always map the full buffer so we can reuse the mapping even with different
                         // sizes.
                         buffer.size as u64,
@@ -325,6 +324,8 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::os::fd::AsFd;
+    use std::os::fd::BorrowedFd;
     use std::os::fd::FromRawFd;
 
     use crate::VirtioMediaHostMemoryMapper;
@@ -341,7 +342,7 @@ mod tests {
     impl VirtioMediaHostMemoryMapper for DummyHostMemoryMapper {
         fn add_mapping(
             &mut self,
-            _buffer: std::fs::File,
+            _buffer: BorrowedFd,
             _length: u64,
             offset: u64,
             _rw: bool,
@@ -590,7 +591,7 @@ mod tests {
 
         // Single mapping
         assert_eq!(
-            mm.create_mapping(0x1000, &file, false),
+            mm.create_mapping(0x1000, file.as_fd(), false),
             Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(mm.remove_mapping(0x8000_1000), Ok(false));
@@ -601,11 +602,11 @@ mod tests {
 
         // Multiple mappings
         assert_eq!(
-            mm.create_mapping(0x1000, &file, false),
+            mm.create_mapping(0x1000, file.as_fd(), false),
             Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(
-            mm.create_mapping(0x1000, &file, false),
+            mm.create_mapping(0x1000, file.as_fd(), false),
             Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(mm.remove_mapping(0x8000_1000), Ok(true));
@@ -617,24 +618,24 @@ mod tests {
 
         // Mapping at non-existing offset
         assert_eq!(
-            mm.create_mapping(0x2000, &file, false),
+            mm.create_mapping(0x2000, file.as_fd(), false),
             Err(CreateMappingError::InvalidOffset)
         );
 
         // Requesting same mapping with different access
         assert_eq!(
-            mm.create_mapping(0x1000, &file, false),
+            mm.create_mapping(0x1000, file.as_fd(), false),
             Ok((0x8000_1000, 0x5000))
         );
         assert_eq!(
-            mm.create_mapping(0x1000, &file, true),
+            mm.create_mapping(0x1000, file.as_fd(), true),
             Err(CreateMappingError::NonMatchingPermissions)
         );
         assert_eq!(mm.remove_mapping(0x8000_1000), Ok(false));
 
         // Mappings must survive a buffer's deregistration
         assert_eq!(
-            mm.create_mapping(0x1000, &file, false),
+            mm.create_mapping(0x1000, file.as_fd(), false),
             Ok((0x8000_1000, 0x5000))
         );
         assert!(mm.unregister_buffer(0x1000));
