@@ -222,7 +222,7 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
         writer: &mut Writer,
     ) -> IoResult<()>;
 
-    /// Performs the MMAP command and write the response into `writer`.
+    /// Performs the MMAP command.
     ///
     /// Only returns an error if the response could not be properly written ; all other errors are
     /// propagated to the guest.
@@ -233,13 +233,12 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
         session: &mut Self::Session,
         flags: u32,
         offset: u64,
-        writer: &mut Writer,
-    ) -> IoResult<()>;
-    /// Performs the MUNMAP command and write the response into `writer`.
+    ) -> Result<(u64, u64), i32>;
+    /// Performs the MUNMAP command.
     ///
     /// Only returns an error if the response could not be properly written ; all other errors are
     /// propagated to the guest.
-    fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()>;
+    fn do_munmap(&mut self, guest_addr: u64) -> Result<(), i32>;
 }
 
 /// Wrapping structure for a `VirtioMediaDevice` managing its sessions and providing methods for
@@ -343,10 +342,16 @@ where
                          flags,
                          offset,
                      }| {
-                        match self.sessions.get_mut(&session_id) {
-                            Some(session) => self.device.do_mmap(session, flags, offset, writer),
-
-                            None => writer.write_err_response(libc::EINVAL),
+                        match self
+                            .sessions
+                            .get_mut(&session_id)
+                            .ok_or(libc::EINVAL)
+                            .and_then(|session| self.device.do_mmap(session, flags, offset))
+                        {
+                            Ok((guest_addr, size)) => {
+                                writer.write_response(MmapResp::ok(guest_addr, size))
+                            }
+                            Err(e) => writer.write_err_response(e),
                         }
                         .context("while writing response for MMAP command")
                     },
@@ -355,9 +360,11 @@ where
                 .read_obj()
                 .context("while reading UNMMAP command")
                 .and_then(|MunmapCmd { guest_addr }| {
-                    self.device
-                        .do_munmap(guest_addr, writer)
-                        .context("while writing response for MUNMAP command")
+                    match self.device.do_munmap(guest_addr) {
+                        Ok(()) => writer.write_response(MunmapResp::ok()),
+                        Err(e) => writer.write_err_response(e),
+                    }
+                    .context("while writing response for MUNMAP command")
                 }),
             _ => writer
                 .write_err_response(libc::ENOTTY)

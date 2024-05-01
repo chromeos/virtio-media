@@ -33,8 +33,6 @@ use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
 use crate::mmap::MmapMappingManager;
 use crate::protocol::DequeueBufferEvent;
-use crate::protocol::MmapResp;
-use crate::protocol::MunmapResp;
 use crate::protocol::SgEntry;
 use crate::protocol::V4l2Event;
 use crate::protocol::V4l2Ioctl;
@@ -42,7 +40,6 @@ use crate::protocol::VIRTIO_MEDIA_MMAP_FLAG_RW;
 use crate::VirtioMediaDevice;
 use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaHostMemoryMapper;
-use crate::WriteDescriptorChain;
 
 /// Current status of a buffer.
 #[derive(Debug, PartialEq, Eq)]
@@ -263,30 +260,26 @@ where
         session: &mut Self::Session,
         flags: u32,
         offset: u64,
-        writer: &mut Writer,
-    ) -> IoResult<()> {
-        let buffer = match session.buffers.iter().find(|b| b.offset == offset) {
-            Some(buffer) => buffer,
-            None => return writer.write_err_response(libc::EINVAL),
-        };
+    ) -> Result<(u64, u64), i32> {
+        let buffer = session
+            .buffers
+            .iter()
+            .find(|b| b.offset == offset)
+            .ok_or(libc::EINVAL)?;
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
-        let (guest_addr, size) =
-            match self
-                .mmap_manager
-                .create_mapping(offset, buffer.fd.as_file(), rw)
-            {
-                Ok(mapping) => mapping,
-                Err(_) => return writer.write_err_response(libc::EINVAL),
-            };
+        let (guest_addr, size) = self
+            .mmap_manager
+            .create_mapping(offset, buffer.fd.as_file(), rw)
+            .map_err(|_| libc::EINVAL)?;
 
-        writer.write_response(MmapResp::ok(guest_addr, size))
+        Ok((guest_addr, size))
     }
 
-    fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {
-        match self.mmap_manager.remove_mapping(guest_addr) {
-            Ok(_) => writer.write_response(MunmapResp::ok()),
-            Err(_) => writer.write_err_response(libc::EINVAL),
-        }
+    fn do_munmap(&mut self, guest_addr: u64) -> Result<(), i32> {
+        self.mmap_manager
+            .remove_mapping(guest_addr)
+            .map(|_| ())
+            .map_err(|_| libc::EINVAL)
     }
 }
 

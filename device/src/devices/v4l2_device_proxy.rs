@@ -76,8 +76,6 @@ use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
 use crate::mmap::MmapMappingManager;
 use crate::protocol::DequeueBufferEvent;
-use crate::protocol::MmapResp;
-use crate::protocol::MunmapResp;
 use crate::protocol::SessionEvent;
 use crate::protocol::SgEntry;
 use crate::protocol::V4l2Event;
@@ -87,7 +85,6 @@ use crate::VirtioMediaDevice;
 use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaGuestMemoryMapper;
 use crate::VirtioMediaHostMemoryMapper;
-use crate::WriteDescriptorChain;
 
 fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
     v4l2_buffer: &V4l2Buffer,
@@ -1374,20 +1371,16 @@ where
         session: &mut Self::Session,
         flags: u32,
         offset: u64,
-        writer: &mut Writer,
-    ) -> IoResult<()> {
+    ) -> Result<(u64, u64), i32> {
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
 
-        let plane_info = match self.mmap_buffers.get_mut(&offset) {
-            Some(plane_info) => plane_info,
-            None => return writer.write_err_response(libc::EINVAL),
-        };
+        let plane_info = self.mmap_buffers.get_mut(&offset).ok_or(libc::EINVAL)?;
 
         // Export the FD for the plane and cache it if needed.
         let exported_fd = match &mut plane_info.exported_fd {
             Some(fd) => fd,
             None => {
-                let fd = match v4l2r::ioctl::expbuf::<File>(
+                let fd = v4l2r::ioctl::expbuf::<File>(
                     &session.device,
                     plane_info.queue,
                     plane_info.index as usize,
@@ -1397,30 +1390,24 @@ where
                     } else {
                         ExpbufFlags::RDONLY
                     },
-                ) {
-                    Ok(desc) => desc,
-                    Err(e) => return writer.write_err_response(e.into_errno()),
-                };
+                )
+                .map_err(|e| e.into_errno())?;
 
                 plane_info.exported_fd.get_or_insert(fd)
             }
         };
 
-        let (mapping_addr, mapping_size) = match self
+        let (mapping_addr, mapping_size) = self
             .mmap_manager
             .create_mapping(offset, exported_fd, rw)
             // TODO: better error mapping?
-            .map_err(|_| libc::EINVAL)
-        {
-            Ok(guest_addr) => guest_addr,
-            Err(e) => return writer.write_err_response(e),
-        };
+            .map_err(|_| libc::EINVAL)?;
 
         plane_info.map_address = mapping_addr;
-        writer.write_response(MmapResp::ok(mapping_addr, mapping_size))
+        Ok((mapping_addr, mapping_size))
     }
 
-    fn do_munmap(&mut self, guest_addr: u64, writer: &mut Writer) -> IoResult<()> {
+    fn do_munmap(&mut self, guest_addr: u64) -> Result<(), i32> {
         match self.mmap_manager.remove_mapping(guest_addr) {
             Ok(has_mappings) => {
                 // Free the exported handle if this was the last mapping.
@@ -1435,10 +1422,9 @@ where
                     };
                 }
 
-                writer.write_response(MunmapResp::ok())
+                Ok(())
             }
-            // TODO: better error mapping?
-            Err(_) => writer.write_err_response(libc::EINVAL),
+            Err(_) => Err(libc::EINVAL),
         }
     }
 
