@@ -487,6 +487,8 @@ static int virtio_media_device_open(struct file *file)
 	u32 session_id;
 	int ret;
 
+	mutex_lock(&vv->vlock);
+
 	sg_set_buf(&cmd_sg, cmd_open, sizeof(*cmd_open));
 	sg_mark_end(&cmd_sg);
 
@@ -499,6 +501,7 @@ static int virtio_media_device_open(struct file *file)
 					NULL);
 	session_id = resp_open->session_id;
 	mutex_unlock(&vv->bufs_lock);
+	mutex_unlock(&vv->vlock);
 	if (ret < 0)
 		return ret;
 
@@ -526,6 +529,8 @@ static int virtio_media_device_close(struct file *file)
 	struct scatterlist *sgs[1] = { &cmd_sg };
 	int ret;
 
+	mutex_lock(&vv->vlock);
+
 	cmd_close->hdr.cmd = VIRTIO_MEDIA_CMD_CLOSE;
 	cmd_close->session_id = session->id;
 
@@ -533,6 +538,7 @@ static int virtio_media_device_close(struct file *file)
 	sg_mark_end(&cmd_sg);
 
 	ret = virtio_media_send_command(vv, sgs, 1, 0, 0, NULL);
+	mutex_unlock(&vv->vlock);
 	if (ret < 0)
 		return ret;
 
@@ -597,7 +603,7 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
  * Inform the host that a previously created MMAP mapping is no longer needed
  * and can be removed.
  */
-static void virtio_media_vma_close(struct vm_area_struct *vma)
+static void virtio_media_vma_close_locked(struct vm_area_struct *vma)
 {
 	struct virtio_media *vv = vma->vm_private_data;
 	struct virtio_media_cmd_munmap *cmd_munmap = &vv->cmd.munmap;
@@ -622,6 +628,15 @@ static void virtio_media_vma_close(struct vm_area_struct *vma)
 		v4l2_err(&vv->v4l2_dev, "host failed to unmap buffer: %d\n",
 			 ret);
 	}
+}
+
+static void virtio_media_vma_close(struct vm_area_struct *vma)
+{
+	struct virtio_media *vv = vma->vm_private_data;
+
+	mutex_lock(&vv->vlock);
+	virtio_media_vma_close_locked(vma);
+	mutex_unlock(&vv->vlock);
 }
 
 static struct vm_operations_struct virtio_media_vm_ops = {
@@ -652,6 +667,8 @@ static int virtio_media_device_mmap(struct file *file,
 	if (!(vma->vm_flags & (VM_READ | VM_WRITE)))
 		return -EINVAL;
 
+	mutex_lock(&vv->vlock);
+
 	cmd_mmap->hdr.cmd = VIRTIO_MEDIA_CMD_MMAP;
 	cmd_mmap->session_id = session->id;
 	cmd_mmap->flags =
@@ -672,7 +689,7 @@ static int virtio_media_device_mmap(struct file *file,
 	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(*resp_mmap),
 					NULL);
 	if (ret < 0)
-		return ret;
+		goto end;
 
 	vma->vm_private_data = vv;
 	/*
@@ -682,8 +699,9 @@ static int virtio_media_device_mmap(struct file *file,
 	vma->vm_pgoff = resp_mmap->addr >> PAGE_SHIFT;
 
 	if (vma->vm_end - vma->vm_start > PAGE_ALIGN(resp_mmap->len)) {
-		virtio_media_vma_close(vma);
-		return -EINVAL;
+		virtio_media_vma_close_locked(vma);
+		ret = -EINVAL;
+		goto end;
 	}
 
 	ret = io_remap_pfn_range(vma, vma->vm_start,
@@ -691,11 +709,13 @@ static int virtio_media_device_mmap(struct file *file,
 				 vma->vm_end - vma->vm_start,
 				 vma->vm_page_prot);
 	if (ret)
-		return ret;
+		goto end;
 
 	vma->vm_ops = &virtio_media_vm_ops;
 
-	return 0;
+end:
+	mutex_unlock(&vv->vlock);
+	return ret;
 }
 
 static const struct v4l2_file_operations virtio_media_fops = {
@@ -737,6 +757,7 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	INIT_LIST_HEAD(&vv->sessions);
 	mutex_init(&vv->sessions_lock);
 	mutex_init(&vv->events_process_lock);
+	mutex_init(&vv->vlock);
 
 	vv->virtio_dev = virtio_dev;
 	virtio_dev->priv = vv;

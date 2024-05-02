@@ -55,6 +55,9 @@ struct virtio_media {
 	/* Protects `cmd_buf` and `resp_buf` */
 	struct mutex bufs_lock;
 
+	/* Used to serialize all virtio commands */
+	struct mutex vlock;
+
 	/* Waitqueue for host responses on the command queue */
 	wait_queue_head_t wq;
 };

@@ -867,6 +867,8 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 {
 	struct virtio_media_session *session =
 		fh_to_session(file->private_data);
+	struct video_device *video_dev = video_devdata(file);
+	struct virtio_media *vv = to_virtio_media(video_dev);
 	struct virtio_media_buffer *dqbuf;
 	struct virtio_media_queue_state *queue;
 	struct list_head *buffer_queue;
@@ -896,8 +898,10 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 	} else if (!queue->streaming) {
 		return -EINVAL;
 	} else {
+		mutex_unlock(&vv->vlock);
 		ret = wait_event_interruptible(session->dqbufs_wait,
 					       !list_empty(buffer_queue));
+		mutex_lock(&vv->vlock);
 		if (ret)
 			return -EINTR;
 	}
@@ -1199,52 +1203,65 @@ const struct v4l2_ioctl_ops virtio_media_ioctl_ops = {
 long virtio_media_device_ioctl(struct file *file, unsigned int cmd,
 			       unsigned long arg)
 {
-	struct video_device *vfd = video_devdata(file);
+	struct video_device *video_dev = video_devdata(file);
+	struct virtio_media *vv = to_virtio_media(video_dev);
 	struct v4l2_fh *vfh = NULL;
 	struct v4l2_standard standard;
 	v4l2_std_id std_id = 0;
 	int ret;
 
-	if (test_bit(V4L2_FL_USES_V4L2_FH, &vfd->flags))
+	if (test_bit(V4L2_FL_USES_V4L2_FH, &video_dev->flags))
 		vfh = file->private_data;
+
+	mutex_lock(&vv->vlock);
 
 	/*
 	 * We need to handle a few ioctls manually because their result rely on
 	 * vfd->tvnorms, which is normally updated by the driver as S_INPUT is
 	 * called. Since we want to just pass these ioctls through, we have to hijack
 	 * them from here.
+         *
+         * TODO: do we need to acquire video_device::lock when running any of these?
 	 */
 	switch (cmd) {
 	case VIDIOC_S_STD:
 		ret = copy_from_user(&std_id, (void __user *)arg,
 				     sizeof(std_id));
-		if (ret)
-			return -EINVAL;
-		return virtio_media_s_std(file, vfh, std_id);
-	case VIDIOC_ENUMSTD: {
+		if (ret) {
+			ret = -EINVAL;
+			break;
+		}
+		ret = virtio_media_s_std(file, vfh, std_id);
+		break;
+	case VIDIOC_ENUMSTD:
 		ret = copy_from_user(&standard, (void __user *)arg,
 				     sizeof(standard));
-		if (ret)
-			return -EINVAL;
+		if (ret) {
+			ret = -EINVAL;
+			break;
+		}
 		ret = virtio_media_enumstd(file, vfh, &standard);
 		if (ret)
-			return ret;
+			break;
 		ret = copy_to_user((void __user *)arg, &standard,
 				   sizeof(standard));
 		if (ret)
-			return -EINVAL;
-		return 0;
-	}
-	case VIDIOC_QUERYSTD: {
+			ret = -EINVAL;
+		break;
+	case VIDIOC_QUERYSTD:
 		ret = virtio_media_querystd(file, vfh, &std_id);
 		if (ret)
-			return ret;
+			break;
 		ret = copy_to_user((void __user *)arg, &std_id, sizeof(std_id));
 		if (ret)
-			return -EINVAL;
-		return 0;
-	}
+			ret = -EINVAL;
+		break;
 	default:
-		return video_ioctl2(file, cmd, arg);
+		ret = video_ioctl2(file, cmd, arg);
+		break;
 	}
+
+	mutex_unlock(&vv->vlock);
+
+	return ret;
 }
