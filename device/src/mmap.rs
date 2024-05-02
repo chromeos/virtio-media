@@ -91,7 +91,7 @@ pub enum CreateMappingError {
     SizeOutOfBounds,
     #[error("error while cloning the FD for the buffer")]
     FdCloneFailure(std::io::ErrorKind),
-    #[error("error while mapping the buffer")]
+    #[error("error while mapping the buffer: {0}")]
     MappingFailure(i32),
     #[error("mapping requested with different permission from the old one")]
     NonMatchingPermissions,
