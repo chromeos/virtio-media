@@ -256,6 +256,7 @@ where
 {
     pub device: Device,
     pub sessions: HashMap<u32, Device::Session>,
+    // TODO: recycle session ids...
     session_id_counter: u32,
 }
 
