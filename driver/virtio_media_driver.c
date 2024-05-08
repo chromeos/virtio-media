@@ -364,10 +364,9 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 	dqbuf->buffer.flags |= V4L2_BUF_FLAG_DONE;
 
 	mutex_lock(&session->dqbufs_lock);
-	list_add_tail(&dqbuf->list,
-		      &session->queues[dqbuf->buffer.type].pending_dqbufs);
+	list_add_tail(&dqbuf->list, &queue->pending_dqbufs);
 	mutex_unlock(&session->dqbufs_lock);
-	session->queues[dqbuf->buffer.type].queued_bufs -= 1;
+	queue->queued_bufs -= 1;
 	wake_up(&session->dqbufs_wait);
 }
 
