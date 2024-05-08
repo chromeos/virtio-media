@@ -888,7 +888,6 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 
 	buffer_queue = &queue->pending_dqbufs;
 
-	/* Only block for a buffer if the file has been opened with O_NONBLOCK. */
 	if (session->nonblocking_dequeue) {
 		if (list_empty(buffer_queue))
 			return -EAGAIN;
