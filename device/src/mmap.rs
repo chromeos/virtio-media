@@ -79,6 +79,8 @@ pub enum RegisterBufferError {
     RangeOccupied,
     #[error("buffers of size 0 cannot be registered")]
     EmptyBuffer,
+    #[error("buffer offset must be a multiple of the memory page size")]
+    UnalignedOffset,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -103,6 +105,9 @@ pub enum RemoveMappingError {
     InvalidOffset,
 }
 
+const PAGE_SIZE: u64 = 0x1000;
+const PAGE_MASK: u64 = !(PAGE_SIZE - 1);
+
 impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
     /// Registers a new buffer of `size` at `offset`. If `offset` if `None`, then a free space of
     /// `size` is allocated and the offset of the buffer is returned.
@@ -120,7 +125,9 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
             // insufficient space.
             self.buffers
                 .last()
-                .map(|b| b.offset as u64 + b.size as u64)
+                // Align the start offset to the next page, or `register_buffer_by_offset` will
+                // fail.
+                .map(|b| (b.offset as u64 + b.size as u64 + (PAGE_SIZE - 1)) & PAGE_MASK)
                 .unwrap_or(0)
         });
 
@@ -153,15 +160,21 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
 
     // Register a new buffer of `size` at `offset`. Returns an error if the [offset..size[ area is
     // already occupied by another buffer.
+    //
+    // `size` must be greater than `0` and `offset` must be a multiple of `PAGE_SIZE`.
     fn register_buffer_by_offset(
         &mut self,
         offset: u64,
         size: u64,
     ) -> Result<(), RegisterBufferError> {
-        let size = u32::try_from(size).map_err(|_| RegisterBufferError::NoFreeSpace)?;
         if size == 0 {
             return Err(RegisterBufferError::EmptyBuffer);
         }
+        if offset & PAGE_MASK != offset {
+            return Err(RegisterBufferError::UnalignedOffset);
+        }
+
+        let size = u32::try_from(size).map_err(|_| RegisterBufferError::NoFreeSpace)?;
 
         let last_buffer_address = u32::try_from(offset + (size as u64 - 1))
             .map_err(|_| RegisterBufferError::NoFreeSpace)?;
@@ -396,6 +409,11 @@ mod tests {
         assert_eq!(
             mm.register_buffer_by_offset(0x8000, 0x0),
             Err(RegisterBufferError::EmptyBuffer)
+        );
+
+        assert_eq!(
+            mm.register_buffer_by_offset(0x8100, 0x1000),
+            Err(RegisterBufferError::UnalignedOffset)
         );
 
         assert_eq!(
