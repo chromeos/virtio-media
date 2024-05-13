@@ -52,6 +52,7 @@ use v4l2r::ioctl::TunerMode;
 use v4l2r::ioctl::TunerTransmissionFlags;
 use v4l2r::ioctl::TunerType;
 use v4l2r::ioctl::V4l2Buffer;
+use v4l2r::ioctl::V4l2PlanesWithBacking;
 use v4l2r::memory::MemoryType;
 use v4l2r::QueueDirection;
 use v4l2r::QueueType;
@@ -695,26 +696,16 @@ impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
             .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
 
         // Read the `MemRegion`s of all planes if the buffer is `USERPTR`.
-        let guest_regions = if v4l2_buffer.memory() == MemoryType::UserPtr
-            && v4l2_buffer.v4l2_buffer().length > 0
+        let guest_regions = if let V4l2PlanesWithBacking::UserPtr(planes) =
+            v4l2_buffer.planes_with_backing_iter()
         {
-            if queue.is_multiplanar() {
-                v4l2_buffer
-                    .v4l2_plane_iter()
-                    .filter(|p| p.length > 0)
-                    .map(|p| {
-                        get_userptr_regions(reader, p.length as usize)
-                            .map_err(|_| std::io::ErrorKind::InvalidData.into())
-                    })
-                    .collect::<IoResult<Vec<_>>>()?
-            } else if !queue.is_multiplanar() {
-                vec![
-                    get_userptr_regions(reader, v4l2_buffer.v4l2_buffer().length as usize)
-                        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?,
-                ]
-            } else {
-                vec![]
-            }
+            planes
+                .filter(|p| *p.length > 0)
+                .map(|p| {
+                    get_userptr_regions(reader, *p.length as usize)
+                        .map_err(|_| std::io::ErrorKind::InvalidData.into())
+                })
+                .collect::<IoResult<Vec<_>>>()?
         } else {
             vec![]
         };
@@ -727,16 +718,18 @@ impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
 /// larger than a limit (i.e. the maximum number of planes that the descriptor chain can receive).
 impl ToDescriptorChain for (V4l2Buffer, usize) {
     fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let buffer = &self.0;
-        let num_planes = std::cmp::min(buffer.num_planes(), self.1);
+        let mut v4l2_buffer = *self.0.as_v4l2_buffer();
+        // If the buffer is multiplanar, nullify the `planes` pointer to avoid leaking host
+        // addresses.
+        if self.0.queue().is_multiplanar() {
+            v4l2_buffer.m.planes = std::ptr::null_mut();
+        }
+        v4l2_buffer.write_to_chain(writer)?;
 
-        self.0.v4l2_buffer().write_to_chain(writer)?;
-
-        // Write plane information if the queue is multiplanar.
-        if self.0.queue_type().is_multiplanar() {
-            for plane in self.0.v4l2_plane_iter().take(num_planes) {
-                plane.write_to_chain(writer)?;
-            }
+        // Write plane information if the buffer is multiplanar. Limit the number of planes to the
+        // upper bound we were given.
+        for plane in self.0.as_v4l2_planes().iter().take(self.1) {
+            plane.write_to_chain(writer)?;
         }
 
         Ok(())
@@ -775,7 +768,10 @@ impl FromDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>, Vec<Vec<
 impl ToDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>) {
     fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let (ctrls, ctrl_array) = self;
+        let mut ctrls = *ctrls;
 
+        // Nullify the control pointer to avoid leaking host addresses.
+        ctrls.controls = std::ptr::null_mut();
         ctrls.write_to_chain(writer)?;
 
         for ctrl in ctrl_array {

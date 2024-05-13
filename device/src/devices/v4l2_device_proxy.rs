@@ -11,7 +11,6 @@ use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Context;
 use log::error;
 use log::warn;
 use v4l2r::bindings::v4l2_audio;
@@ -58,7 +57,6 @@ use v4l2r::ioctl::EventType as V4l2EventType;
 use v4l2r::ioctl::ExpbufFlags;
 use v4l2r::ioctl::ExtControlError;
 use v4l2r::ioctl::IntoErrno;
-use v4l2r::ioctl::QueryBuf;
 use v4l2r::ioctl::QueryCapError;
 use v4l2r::ioctl::QueryCtrlFlags;
 use v4l2r::ioctl::SelectionFlags;
@@ -69,6 +67,8 @@ use v4l2r::ioctl::TunerMode;
 use v4l2r::ioctl::TunerTransmissionFlags;
 use v4l2r::ioctl::TunerType;
 use v4l2r::ioctl::V4l2Buffer;
+use v4l2r::ioctl::V4l2PlanesWithBacking;
+use v4l2r::ioctl::V4l2PlanesWithBackingMut;
 use v4l2r::memory::MemoryType;
 use v4l2r::QueueType;
 
@@ -88,58 +88,28 @@ use crate::VirtioMediaGuestMemoryMapper;
 use crate::VirtioMediaHostMemoryMapper;
 
 fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
-    v4l2_buffer: &V4l2Buffer,
-    mut guest_regions: Vec<Vec<SgEntry>>,
+    guest_buffer: &V4l2Buffer,
+    guest_regions: Vec<Vec<SgEntry>>,
     m: &M,
 ) -> anyhow::Result<(V4l2Buffer, Vec<M::GuestMemoryMapping>)> {
-    if v4l2_buffer.memory() == MemoryType::UserPtr && v4l2_buffer.v4l2_buffer().length > 0 {
-        let mut resources = vec![];
-        let mut host_buffer = *v4l2_buffer.v4l2_buffer();
-        let queue = v4l2_buffer.queue_type();
+    let mut resources = vec![];
+    // The host buffer is a copy of the guest's with its plane resources updated.
+    let mut host_buffer = guest_buffer.clone();
 
-        if queue.is_multiplanar() {
-            let mut host_planes = v4l2_buffer.v4l2_plane_iter().cloned().collect::<Vec<_>>();
-
-            for (plane, mem_regions) in host_planes
-                .iter_mut()
-                .filter(|p| p.length > 0)
-                .zip(guest_regions)
-            {
-                let mut mapping = m.new_mapping(mem_regions)?;
-
-                plane.m.userptr = mapping.as_mut().as_ptr() as u64;
-                resources.push(mapping);
-            }
-
-            let host_planes: [_; v4l2r::bindings::VIDEO_MAX_PLANES as usize] = host_planes
-                .into_iter()
-                .chain(std::iter::repeat(Default::default()))
-                .take(v4l2r::bindings::VIDEO_MAX_PLANES as usize)
-                .collect::<Vec<_>>()
-                .try_into()
-                .map_err(|_| {
-                    anyhow::anyhow!("could not convert vector of v4l2_planes into array")
-                })?;
-
-            Ok((
-                V4l2Buffer::try_from_v4l2_buffer(host_buffer, Some(host_planes))?,
-                resources,
-            ))
-        } else {
-            let mem_regions = guest_regions.remove(0);
+    if let V4l2PlanesWithBackingMut::UserPtr(host_planes) =
+        host_buffer.planes_with_backing_iter_mut()
+    {
+        for (mut host_plane, mem_regions) in
+            host_planes.filter(|p| *p.length > 0).zip(guest_regions)
+        {
             let mut mapping = m.new_mapping(mem_regions)?;
 
-            host_buffer.m.userptr = mapping.as_mut().as_ptr() as u64;
+            host_plane.set_userptr(mapping.as_mut().as_ptr() as u64);
             resources.push(mapping);
-
-            Ok((
-                V4l2Buffer::try_from_v4l2_buffer(host_buffer, None)?,
-                resources,
-            ))
         }
-    } else {
-        Ok((v4l2_buffer.clone(), Default::default()))
-    }
+    };
+
+    Ok((host_buffer, resources))
 }
 
 /// Restore the user pointers of `host_buffer` using the values in `initial_guest_buffer`, if the buffer's
@@ -149,49 +119,25 @@ fn host_v4l2_buffer_to_guest<R>(
     host_buffer: &V4l2Buffer,
     userptr_buffers: &BTreeMap<u64, V4l2UserPlaneInfo<R>>,
 ) -> anyhow::Result<V4l2Buffer> {
-    if host_buffer.memory() == MemoryType::UserPtr {
-        let mut guest_buffer = *host_buffer.v4l2_buffer();
-        let guest_planes = if host_buffer.queue_type().is_multiplanar() {
-            let mut guest_planes: [v4l2r::bindings::v4l2_plane;
-                v4l2r::bindings::VIDEO_MAX_PLANES as usize] = Default::default();
-            for (guest_plane, host_plane) in
-                guest_planes.iter_mut().zip(host_buffer.v4l2_plane_iter())
-            {
-                // Safe because we checked that the memory type is USERPTR.
-                let host_userptr = unsafe { host_plane.m.userptr };
-                *guest_plane = *host_plane;
-                if host_userptr != 0 {
-                    guest_plane.m.userptr = userptr_buffers
-                        .get(&host_userptr)
-                        .map(|p| p.guest_addr)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "host buffer address 0x{:x} not registered!",
-                                host_userptr
-                            )
-                        })?;
-                }
-            }
+    // The guest buffer is a copy of the host's with its plane resources updated.
+    let mut guest_buffer = host_buffer.clone();
 
-            Some(guest_planes)
-        } else {
-            // Safe because we checked that the memory type is USERPTR.
-            let host_userptr = unsafe { host_buffer.v4l2_buffer().m.userptr };
-            if host_userptr != 0 {
-                guest_buffer.m.userptr = userptr_buffers
-                    .get(&host_userptr)
-                    .map(|p| p.guest_addr)
-                    .ok_or_else(|| {
+    if let V4l2PlanesWithBackingMut::UserPtr(host_planes) =
+        guest_buffer.planes_with_backing_iter_mut()
+    {
+        for mut plane in host_planes.filter(|p| p.userptr() != 0) {
+            let host_userptr = plane.userptr();
+            let guest_userptr = userptr_buffers
+                .get(&host_userptr)
+                .map(|p| p.guest_addr)
+                .ok_or_else(|| {
                     anyhow::anyhow!("host buffer address 0x{:x} not registered!", host_userptr)
                 })?;
-            }
-            None
-        };
-        V4l2Buffer::try_from_v4l2_buffer(guest_buffer, guest_planes)
-            .context("while patching guest memory addresses into host V4L2 buffer")
-    } else {
-        Ok(host_buffer.clone())
+            plane.set_userptr(guest_userptr);
+        }
     }
+
+    Ok(guest_buffer)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -319,45 +265,29 @@ where
         &mut self,
         host_buffer: &V4l2Buffer,
         guest_buffer: &V4l2Buffer,
-        mut guest_resources: Vec<M::GuestMemoryMapping>,
+        guest_resources: Vec<M::GuestMemoryMapping>,
     ) {
-        let memory = host_buffer.memory();
-
-        if memory == MemoryType::UserPtr {
-            let queue = host_buffer.queue_type();
-
-            if queue.is_multiplanar() && host_buffer.v4l2_buffer().length > 0 {
-                // Safe because we have tested that the memory type is USERPTR.
-                unsafe {
-                    for ((host_plane, guest_plane), guest_resource) in host_buffer
-                        .v4l2_plane_iter()
-                        .zip(guest_buffer.v4l2_plane_iter())
-                        .filter(|(h, _)| h.m.userptr != 0)
-                        .zip(guest_resources.into_iter())
-                    {
-                        let plane_info = {
-                            V4l2UserPlaneInfo {
-                                queue: guest_buffer.queue_type(),
-                                index: guest_buffer.index() as u8,
-                                guest_addr: guest_plane.m.userptr,
-                                _guest_resource: guest_resource,
-                            }
-                        };
-                        self.userptr_buffers
-                            .insert(host_plane.m.userptr, plane_info);
-                    }
+        if let V4l2PlanesWithBacking::UserPtr(host_planes) = host_buffer.planes_with_backing_iter()
+        {
+            if let V4l2PlanesWithBacking::UserPtr(guest_planes) =
+                guest_buffer.planes_with_backing_iter()
+            {
+                for ((host_userptr, guest_plane), guest_resource) in host_planes
+                    .map(|p| p.userptr())
+                    .zip(guest_planes)
+                    .filter(|(h, _)| *h != 0)
+                    .zip(guest_resources.into_iter())
+                {
+                    let plane_info = {
+                        V4l2UserPlaneInfo {
+                            queue: guest_buffer.queue(),
+                            index: guest_buffer.index() as u8,
+                            guest_addr: guest_plane.userptr(),
+                            _guest_resource: guest_resource,
+                        }
+                    };
+                    self.userptr_buffers.insert(host_userptr, plane_info);
                 }
-            } else if !queue.is_multiplanar() && host_buffer.v4l2_buffer().length > 0 {
-                let host_addr = unsafe { host_buffer.v4l2_buffer().m.userptr };
-                let guest_addr = unsafe { guest_buffer.v4l2_buffer().m.userptr };
-                let plane_info = V4l2UserPlaneInfo {
-                    queue: guest_buffer.queue_type(),
-                    index: guest_buffer.index() as u8,
-                    guest_addr,
-                    _guest_resource: guest_resources.remove(0),
-                };
-
-                self.userptr_buffers.insert(host_addr, plane_info);
             }
         }
     }
@@ -491,7 +421,6 @@ where
         &mut self,
         session: &mut V4l2Session<M>,
         queue: QueueType,
-        memory: MemoryType,
         range: std::ops::Range<u32>,
     ) {
         // Remove buffers that have been deallocated.
@@ -506,32 +435,22 @@ where
         // Garbage-collect buffers that can be deleted.
         self.mmap_buffers.retain(|_, b| b.active);
 
-        if memory == MemoryType::Mmap {
-            for i in range {
-                let buffer = match v4l2r::ioctl::querybuf::<V4l2Buffer>(
-                    &session.device,
-                    queue,
-                    i as usize,
-                ) {
+        for i in range {
+            let buffer =
+                match v4l2r::ioctl::querybuf::<V4l2Buffer>(&session.device, queue, i as usize) {
                     Ok(buffer) => buffer,
                     Err(e) => {
                         warn!("failed to query newly allocated buffer: {:#}", e);
                         continue;
                     }
                 };
-                // TODO(v4l2r) have an iterator instead?
-                for j in 0..buffer.num_planes() {
-                    let plane = buffer.get_plane(j).unwrap();
-                    let offset = match plane.mem_offset() {
-                        Some(offset) => offset,
-                        None => {
-                            warn!("expected a plane memory offset but none present");
-                            continue;
-                        }
-                    };
+
+            if let V4l2PlanesWithBacking::Mmap(planes) = buffer.planes_with_backing_iter() {
+                for (j, plane) in planes.enumerate() {
+                    let offset = plane.mem_offset();
 
                     self.mmap_manager
-                        .register_buffer(Some(offset as u64), plane.length() as u64)
+                        .register_buffer(Some(offset as u64), *plane.length as u64)
                         .unwrap();
 
                     self.mmap_buffers.insert(
@@ -547,7 +466,7 @@ where
                         },
                     );
                 }
-            }
+            };
         }
 
         // If we allocated on the capture or output queue successfully, remember its type.
@@ -721,7 +640,7 @@ where
         // We do not support requests at the moment, so do not advertize them.
         reqbufs.capabilities &= !v4l2r::bindings::V4L2_BUF_CAP_SUPPORTS_REQUESTS;
 
-        self.update_mmap_offsets(session, queue, memory, 0..reqbufs.count);
+        self.update_mmap_offsets(session, queue, 0..reqbufs.count);
 
         match queue {
             QueueType::VideoCapture | QueueType::VideoCaptureMplane => {
@@ -843,7 +762,7 @@ where
             guest_v4l2_buffer_to_host(&guest_buffer, guest_regions, &self.mem)
                 .map_err(|_| libc::EINVAL)?;
         session.register_userptr_addresses(&host_buffer, &guest_buffer, guest_resources);
-        let queue = host_buffer.queue_type();
+        let queue = host_buffer.queue();
         let index = host_buffer.index() as usize;
         let out_buffer = v4l2r::ioctl::qbuf(&session.device, queue, index, host_buffer)
             .map_err(|e| e.into_errno())
@@ -1233,7 +1152,7 @@ where
         .map_err(|e| (e.into_errno()))?;
 
         let bufs_range = create_bufs.index..(create_bufs.index + create_bufs.count);
-        self.update_mmap_offsets(session, queue, memory, bufs_range);
+        self.update_mmap_offsets(session, queue, bufs_range);
 
         Ok(create_bufs)
     }
@@ -1248,7 +1167,7 @@ where
             guest_v4l2_buffer_to_host(&guest_buffer, guest_regions, &self.mem)
                 .map_err(|_| libc::EINVAL)?;
         session.register_userptr_addresses(&host_buffer, &guest_buffer, guest_resources);
-        let queue = host_buffer.queue_type();
+        let queue = host_buffer.queue();
         let index = host_buffer.index() as usize;
         v4l2r::ioctl::prepare_buf(&session.device, queue, index, host_buffer)
             .map_err(|e| e.into_errno())
