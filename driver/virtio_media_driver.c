@@ -570,26 +570,21 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 	poll_wait(file, &session->dqbufs_wait, wait);
 	poll_wait(file, &session->fh.wait, wait);
 
-	/*
-	 * This function is adequate for m2m devices, however we may need to detect
-	 * the device type and provide variants if this doesn't work with other kinds
-	 * of devices.
-	 */
-
 	mutex_lock(&session->dqbufs_lock);
-	if (req_events & (EPOLLIN | EPOLLRDNORM | EPOLLOUT | EPOLLWRNORM)) {
-		if ((!capture_queue->streaming ||
-		     capture_queue->queued_bufs == 0) &&
-		    (!output_queue->streaming ||
-		     output_queue->queued_bufs == 0)) {
+	if (req_events & (EPOLLIN | EPOLLRDNORM)) {
+		if (!capture_queue->streaming ||
+		    (capture_queue->queued_bufs == 0 &&
+		     list_empty(&capture_queue->pending_dqbufs)))
 			rc |= EPOLLERR;
-		} else {
-			if (!list_empty(&capture_queue->pending_dqbufs))
-				rc |= EPOLLIN | EPOLLRDNORM;
-
-			if (!list_empty(&output_queue->pending_dqbufs))
-				rc |= EPOLLOUT | EPOLLWRNORM;
-		}
+		else if (!list_empty(&capture_queue->pending_dqbufs))
+			rc |= EPOLLIN | EPOLLRDNORM;
+	}
+	if (req_events & (EPOLLOUT | EPOLLWRNORM)) {
+		if (!output_queue->streaming)
+			rc |= EPOLLERR;
+		else if (output_queue->queued_bufs <
+			 output_queue->allocated_bufs)
+			rc |= EPOLLOUT | EPOLLWRNORM;
 	}
 	mutex_unlock(&session->dqbufs_lock);
 
