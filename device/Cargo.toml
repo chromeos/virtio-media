@@ -15,7 +15,7 @@ libc = "0.2.151"
 thiserror = "1.0.38"
 zerocopy = { version = "0.7.31", features = ["derive"] }
 memfd = { version = "0.6.4", optional = true }
-v4l2r = { git = "https://github.com/Gnurou/v4l2r", rev = "f469e65e6ff" }
+v4l2r = { git = "https://github.com/Gnurou/v4l2r", rev = "6ed9181" }
 
 [features]
 default = ["simple-device"]

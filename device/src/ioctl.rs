@@ -42,7 +42,6 @@ use v4l2r::ioctl::AudioMode;
 use v4l2r::ioctl::CtrlId;
 use v4l2r::ioctl::CtrlWhich;
 use v4l2r::ioctl::EventType as V4l2EventType;
-use v4l2r::ioctl::QueryBuf;
 use v4l2r::ioctl::QueryCtrlFlags;
 use v4l2r::ioctl::SelectionFlags;
 use v4l2r::ioctl::SelectionTarget;
@@ -51,6 +50,7 @@ use v4l2r::ioctl::SubscribeEventFlags;
 use v4l2r::ioctl::TunerMode;
 use v4l2r::ioctl::TunerTransmissionFlags;
 use v4l2r::ioctl::TunerType;
+use v4l2r::ioctl::UncheckedV4l2Buffer;
 use v4l2r::ioctl::V4l2Buffer;
 use v4l2r::ioctl::V4l2PlanesWithBacking;
 use v4l2r::memory::MemoryType;
@@ -692,7 +692,7 @@ impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
             None
         };
 
-        let v4l2_buffer = V4l2Buffer::try_from_v4l2_buffer(v4l2_buffer, v4l2_planes)
+        let v4l2_buffer = V4l2Buffer::try_from(UncheckedV4l2Buffer(v4l2_buffer, v4l2_planes))
             .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
 
         // Read the `MemRegion`s of all planes if the buffer is `USERPTR`.
