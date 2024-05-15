@@ -49,6 +49,8 @@ pub mod ioctl;
 pub mod mmap;
 pub mod protocol;
 
+pub use v4l2r;
+
 use std::collections::HashMap;
 use std::io::Result as IoResult;
 use std::os::fd::BorrowedFd;
