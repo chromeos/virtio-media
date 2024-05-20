@@ -1220,8 +1220,6 @@ long virtio_media_device_ioctl(struct file *file, unsigned int cmd,
 	 * vfd->tvnorms, which is normally updated by the driver as S_INPUT is
 	 * called. Since we want to just pass these ioctls through, we have to hijack
 	 * them from here.
-         *
-         * TODO: do we need to acquire video_device::lock when running any of these?
 	 */
 	switch (cmd) {
 	case VIDIOC_S_STD:
