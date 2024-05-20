@@ -191,7 +191,7 @@ static int virtio_media_send_wr_ioctl(struct v4l2_fh *fh, u32 ioctl,
 	if (ret < 0)
 		return ret;
 
-	ret = scatterlist_filler_retrieve_data(session, filler.sgs[1],
+	ret = scatterlist_filler_retrieve_data(session, filler.sgs[3],
 					       ioctl_data, ioctl_data_len);
 	if (ret) {
 		v4l2_err(&vv->v4l2_dev,
