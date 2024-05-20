@@ -63,6 +63,14 @@ static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl,
 	if (ret < 0)
 		return ret;
 
+	ret = scatterlist_filler_retrieve_data(session, filler.sgs[2],
+					       ioctl_data, ioctl_data_len);
+	if (ret) {
+		v4l2_err(&vv->v4l2_dev,
+			 "failed to retrieve response descriptor chain\n");
+		return ret;
+	}
+
 	return 0;
 }
 /**
