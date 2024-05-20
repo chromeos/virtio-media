@@ -338,7 +338,7 @@ static int scatterlist_filler_add_userptr(struct scatterlist_filler *filler,
 }
 
 int scatterlist_filler_add_buffer(struct scatterlist_filler *filler,
-				  struct v4l2_buffer *b, bool add_userptr)
+				  struct v4l2_buffer *b)
 {
 	int i;
 	int ret;
@@ -370,12 +370,25 @@ int scatterlist_filler_add_buffer(struct scatterlist_filler *filler,
 							  b->length);
 		if (ret)
 			return ret;
+	}
 
-		/* USERPTR memory buffers */
+	return 0;
+}
+
+int scatterlist_filler_add_buffer_userptr(struct scatterlist_filler *filler,
+					  struct v4l2_buffer *b)
+{
+	int i;
+	int ret;
+
+	if (b->memory != V4L2_MEMORY_USERPTR)
+		return 0;
+
+	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		for (i = 0; i < b->length; i++) {
 			struct v4l2_plane *plane = &b->m.planes[i];
 			if (b->memory == V4L2_MEMORY_USERPTR &&
-			    plane->length > 0 && add_userptr) {
+			    plane->length > 0) {
 				ret = scatterlist_filler_add_userptr(
 					filler, plane->m.userptr,
 					plane->length);
@@ -383,10 +396,7 @@ int scatterlist_filler_add_buffer(struct scatterlist_filler *filler,
 					return ret;
 			}
 		}
-	} else if (!V4L2_TYPE_IS_MULTIPLANAR(b->type) &&
-		   b->memory == V4L2_MEMORY_USERPTR && b->length > 0 &&
-		   add_userptr) {
-		/* USERPTR memory buffer for single-planar buffers */
+	} else if (b->length > 0) {
 		ret = scatterlist_filler_add_userptr(filler, b->m.userptr,
 						     b->length);
 		if (ret)

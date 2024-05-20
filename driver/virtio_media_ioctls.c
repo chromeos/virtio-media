@@ -211,7 +211,9 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	struct v4l2_plane *planes_backup = NULL;
 	u32 length_backup = 0;
 	struct scatterlist *sgs[64];
+	/* End of the device-readable buffer SGs, to reuse in device-writable section. */
 	size_t num_cmd_sgs;
+	size_t end_buf_sg;
 	struct scatterlist_filler filler = {
 		.descs = session->command_sgs.sgl,
 		.num_descs = DESC_CHAIN_MAX_LEN,
@@ -225,6 +227,7 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	};
 	size_t resp_len;
 	int ret;
+	int i;
 
 	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
@@ -240,7 +243,14 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 		return ret;
 
 	/* Command payload (struct v4l2_buffer) */
-	ret = scatterlist_filler_add_buffer(&filler, b, true);
+	ret = scatterlist_filler_add_buffer(&filler, b);
+	if (ret < 0)
+		return ret;
+
+	end_buf_sg = filler.cur_sg;
+
+	/* Payload of USERPTR buffers, if relevant */
+	ret = scatterlist_filler_add_buffer_userptr(&filler, b);
 	if (ret < 0)
 		return ret;
 
@@ -252,9 +262,11 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 		return ret;
 
 	/* Response payload (same as input, but no userptr mapping) */
-	ret = scatterlist_filler_add_buffer(&filler, b, false);
-	if (ret < 0)
-		return ret;
+	for (i = 1; i < end_buf_sg; i++) {
+		ret = scatterlist_filler_add_sg(&filler, filler.sgs[i]);
+		if (ret < 0)
+			return ret;
+	}
 
 	ret = virtio_media_send_command(
 		vv, filler.sgs, num_cmd_sgs, filler.cur_sg - num_cmd_sgs,

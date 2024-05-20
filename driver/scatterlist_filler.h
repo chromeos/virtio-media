@@ -73,11 +73,17 @@ int scatterlist_filler_add_data(struct scatterlist_filler *filler, void *data,
  * scatterlist_filler_add_buffer - Add a v4l2_buffer and its planes to the list.
  *
  * The buffer and its pointers will be either directly mapped, or copied into the shadow buffer to be mapped there.
- *
- * For USERPTR buffer, the buffer data is always directly mapped, not copied.
  */
 int scatterlist_filler_add_buffer(struct scatterlist_filler *filler,
-				  struct v4l2_buffer *buffer, bool add_userptr);
+				  struct v4l2_buffer *buffer);
+
+/**
+ * scatterlist_filler_add_buffer_userptr - Add a USERPTR v4l2_buffer's content to the list.
+ *
+ * For performance reasons the shadow buffer is never used.
+ */
+int scatterlist_filler_add_buffer_userptr(struct scatterlist_filler *filler,
+					  struct v4l2_buffer *b);
 
 /**
  * scatterlist_filler_add_ext_ctrls - Add a v4l2_ext_controls and its controls to the list.
