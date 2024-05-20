@@ -178,7 +178,6 @@ int scatterlist_filler_retrieve_data(struct virtio_media_session *session,
  */
 int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
 				       struct scatterlist **buffer_sgs,
-				       const int num_buffer_sgs,
 				       struct v4l2_buffer *b, size_t num_planes)
 {
 	struct v4l2_plane *planes = NULL;
@@ -207,11 +206,17 @@ int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
 			return ret;
 	}
 
-	/* If our buffer is a USERPTR one, a few SG list we need to free may follow. */
-	while (i < num_buffer_sgs)
-		kfree(sg_virt(buffer_sgs[i++]));
-
 	return 0;
+}
+
+void scatterlist_filler_free_buffer_userptr(struct scatterlist **userptr_sgs,
+					    const int num_sgs)
+{
+	int i;
+
+	/* If our buffer is a USERPTR one, a few SG list we need to free may follow. */
+	for (i = 0; i < num_sgs; i++)
+		kfree(sg_virt(userptr_sgs[i]));
 }
 
 int scatterlist_filler_retrieve_ext_ctrls(struct virtio_media_session *session,

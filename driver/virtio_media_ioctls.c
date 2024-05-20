@@ -287,13 +287,16 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	if (resp_len < sizeof(*b))
 		return -EINVAL;
 
-	ret = scatterlist_filler_retrieve_buffer(
-		session, &sgs[1], num_cmd_sgs - 1, b, length_backup);
+	ret = scatterlist_filler_retrieve_buffer(session, &sgs[1], b,
+						 length_backup);
 	if (ret) {
 		v4l2_err(&vv->v4l2_dev,
 			 "failed to retrieve response descriptor chain\n");
 		return ret;
 	}
+
+	scatterlist_filler_free_buffer_userptr(&sgs[end_buf_sg],
+					       num_cmd_sgs - end_buf_sg);
 
 	/* TODO ideally we should not be doing this twice, but the scatterlist may screw us up here? */
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
