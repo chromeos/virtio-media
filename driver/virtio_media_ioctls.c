@@ -20,8 +20,7 @@
  * Returns 0 in case of success, or a negative error code.
  */
 static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl,
-				     const void *ioctl_data,
-				     size_t ioctl_data_len)
+				     void *ioctl_data, size_t ioctl_data_len)
 {
 	struct video_device *video_dev = fh->vdev;
 	struct virtio_media *vv = to_virtio_media(video_dev);
@@ -51,8 +50,7 @@ static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl,
 		return ret;
 
 	/* Response payload */
-	ret = scatterlist_filler_add_data(&filler, (void *)ioctl_data,
-					  ioctl_data_len);
+	ret = scatterlist_filler_add_data(&filler, ioctl_data, ioctl_data_len);
 	if (ret) {
 		v4l2_err(&vv->v4l2_dev,
 			 "failed to prepare command descriptor chain\n");
@@ -161,8 +159,7 @@ static int virtio_media_send_wr_ioctl(struct v4l2_fh *fh, u32 ioctl,
 		return ret;
 
 	/* Command payload */
-	ret = scatterlist_filler_add_data(&filler, (void *)ioctl_data,
-					  ioctl_data_len);
+	ret = scatterlist_filler_add_data(&filler, ioctl_data, ioctl_data_len);
 	if (ret) {
 		v4l2_err(&vv->v4l2_dev,
 			 "failed to prepare command descriptor chain\n");
