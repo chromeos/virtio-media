@@ -384,8 +384,9 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
 	if (ret < 0 && resp_len >= sizeof(struct virtio_media_resp_ioctl) +
 					   sizeof(*ctrls)) {
 		/* Deliberately ignore the error here as we want to return the previous one */
-		scatterlist_filler_retrieve_ext_ctrls(session, &sgs[1],
-						      num_cmd_sgs - 1, ctrls);
+		scatterlist_filler_retrieve_ext_ctrls(
+			session, &sgs[num_cmd_sgs + 1],
+			filler.cur_sg - (num_cmd_sgs + 1), ctrls);
 		return ret;
 	}
 
@@ -395,8 +396,9 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
 	if (resp_len < sizeof(*ctrls))
 		return -EINVAL;
 
-	ret = scatterlist_filler_retrieve_ext_ctrls(session, &sgs[1],
-						    num_cmd_sgs - 1, ctrls);
+	ret = scatterlist_filler_retrieve_ext_ctrls(
+		session, &sgs[num_cmd_sgs + 1],
+		filler.cur_sg - (num_cmd_sgs + 1), ctrls);
 	if (ret)
 		return ret;
 
