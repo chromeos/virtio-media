@@ -115,9 +115,6 @@ int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
 				       struct v4l2_buffer *buffer,
 				       size_t num_planes);
 
-void scatterlist_filler_free_buffer_userptr(struct scatterlist **userptr_sgs,
-					    const int num_sgs);
-
 /**
  * scatterlist_filler_retrieve_ext_ctrls - Retrieve controls data written by the device on the shadow buffer, if needed.
  *

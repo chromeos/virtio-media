@@ -49,7 +49,8 @@ char *driver_name = NULL;
 module_param(driver_name, charp, 0660);
 
 /**
- * Allocate a new session. The id and list fields must still be set by the caller.
+ * Allocate a new session. The id and list fields must still be set by the
+ * caller.
  */
 static struct virtio_media_session *
 virtio_media_session_alloc(struct virtio_media *vv, u32 id,
@@ -349,7 +350,8 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 		if (dqbuf->buffer.length > VIDEO_MAX_PLANES) {
 			v4l2_err(
 				&vv->v4l2_dev,
-				"invalid number of planes received from host for a multiplanar buffer\n");
+				"invalid number of planes received from host for "
+				"a multiplanar buffer\n");
 			return;
 		}
 		for (i = 0; i < dqbuf->buffer.length; i++) {

@@ -295,9 +295,6 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 		return ret;
 	}
 
-	scatterlist_filler_free_buffer_userptr(&sgs[end_buf_sg],
-					       num_cmd_sgs - end_buf_sg);
-
 	/* TODO ideally we should not be doing this twice, but the scatterlist may screw us up here? */
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		b->m.planes = planes_backup;
