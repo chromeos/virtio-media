@@ -287,8 +287,8 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 	if (resp_len < sizeof(*b))
 		return -EINVAL;
 
-	ret = scatterlist_filler_retrieve_buffer(session, &sgs[1], b,
-						 length_backup);
+	ret = scatterlist_filler_retrieve_buffer(session, &sgs[num_cmd_sgs + 1],
+						 b, length_backup);
 	if (ret) {
 		v4l2_err(&vv->v4l2_dev,
 			 "failed to retrieve response descriptor chain\n");
