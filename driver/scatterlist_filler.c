@@ -158,8 +158,9 @@ int scatterlist_filler_retrieve_data(struct virtio_media_session *session,
 	 * If our SG entry points inside the shadow buffer, copy the data back to its
 	 * origin.
 	 */
-	if (kaddr >= shadow_buf && kaddr < shadow_buf + VIRTIO_BUF_SIZE) {
-		if (kaddr + len >= shadow_buf + VIRTIO_BUF_SIZE)
+	if (kaddr >= shadow_buf &&
+	    kaddr < shadow_buf + VIRTIO_SHADOW_BUF_SIZE) {
+		if (kaddr + len >= shadow_buf + VIRTIO_SHADOW_BUF_SIZE)
 			return -EINVAL;
 
 		BUG_ON(sg->length != len);

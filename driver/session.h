@@ -20,7 +20,7 @@
  * Size of our virtio shadow and event buffers. 16K should definitely be enough
  * to contain anything we need.
  */
-#define VIRTIO_BUF_SIZE 0x4000
+#define VIRTIO_SHADOW_BUF_SIZE 0x4000
 
 struct virtio_media_sg_entry {
 	u64 start;

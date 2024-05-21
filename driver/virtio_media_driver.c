@@ -63,7 +63,7 @@ virtio_media_session_alloc(struct virtio_media *vv, u32 id,
 	if (!session)
 		goto err_session;
 
-	session->shadow_buf = kzalloc(VIRTIO_BUF_SIZE, GFP_KERNEL);
+	session->shadow_buf = kzalloc(VIRTIO_SHADOW_BUF_SIZE, GFP_KERNEL);
 	if (!session->shadow_buf)
 		goto err_shadow_buf;
 
