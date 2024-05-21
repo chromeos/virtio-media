@@ -52,6 +52,7 @@ use v4l2r::ioctl::BufferFlags;
 use v4l2r::ioctl::CtrlId;
 use v4l2r::ioctl::CtrlWhich;
 use v4l2r::ioctl::DqBufError;
+use v4l2r::ioctl::DqBufIoctlError;
 use v4l2r::ioctl::DqEventError;
 use v4l2r::ioctl::EventType as V4l2EventType;
 use v4l2r::ioctl::ExpbufFlags;
@@ -534,7 +535,8 @@ where
                             session.id, buffer,
                         )))
                 }
-                Err(DqBufError::Eos) | Err(DqBufError::NotReady) => return Ok(()),
+                Err(DqBufError::IoctlError(DqBufIoctlError::Eos))
+                | Err(DqBufError::IoctlError(DqBufIoctlError::NotReady)) => return Ok(()),
                 Err(e) => {
                     let err = e.into_errno();
                     self.evt_queue.send_error(session.id, err);
@@ -560,8 +562,8 @@ where
         let v4l2_buffer =
             match v4l2r::ioctl::dqbuf::<V4l2Buffer>(&session.device, capture_queue_type) {
                 Ok(buffer) => buffer,
-                Err(DqBufError::Eos) => return Ok(()),
-                Err(DqBufError::NotReady) => return Ok(()),
+                Err(DqBufError::IoctlError(DqBufIoctlError::Eos)) => return Ok(()),
+                Err(DqBufError::IoctlError(DqBufIoctlError::NotReady)) => return Ok(()),
                 Err(e) => {
                     let err = e.into_errno();
                     self.evt_queue.send_error(session.id, err);
