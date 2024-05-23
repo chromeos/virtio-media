@@ -295,7 +295,7 @@ static int prepare_userptr_to_host(struct scatterlist_filler *filler,
 		goto free_sg;
 	}
 
-	*sg_list = &filler->shadow_buffer[filler->shadow_buffer_pos];
+	*sg_list = filler->shadow_buffer + filler->shadow_buffer_pos;
 	filler->shadow_buffer_pos += entries_size;
 
 	for_each_sgtable_sg(&sg_table, sg_iter, i) {
