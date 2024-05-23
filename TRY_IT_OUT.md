@@ -100,7 +100,7 @@ This command does the following:
    ```console
    git clone --depth=1 https://chromium.googlesource.com/crosvm/crosvm
    cd crosvm
-   git fetch --depth=10 origin refs/changes/29/5065329/6
+   git fetch --depth=10 origin refs/changes/29/5065329/8
    git checkout FETCH_HEAD
    git submodule update --init
    ```
@@ -167,7 +167,7 @@ We can also check its supported capture formats:
 v4l2-ctl -d0 --list-formats
 ```
 
-which informs us that our device only supports `RGB3`:
+Which informs us that our device only supports `RGB3`:
 
 ```console
 ioctl: VIDIOC_ENUM_FMT
@@ -191,4 +191,78 @@ device on the host into the guest. Let's exit the guest:
 
 ```console
 poweroff
+```
+
+## Proxy a host V4L2 device into a guest
+
+This next example uses virtio-media's V4L2 proxy device to make a host V4L2
+device visible almost as-is into a guest. We will need a working V4L2 device on
+the host, for this example we will assume a regular USB camera using the
+`uvcvideo` driver. With the camera plugged, use `v4l2-ctl` on the host to find
+out the number of the device:
+
+```console
+v4l2-ctl -d0 --info
+```
+
+If the output lines look something like
+
+```console
+Driver Info:
+        Driver name      : uvcvideo
+        Card type        : <Camera name>
+```
+
+Then you have found the correct device. If not, replace `-d0` with `-d1`, `-d2`,
+... until you find a device which driver name is `uvcvideo`.
+
+Now that we have found the device, we can start `crosvm` with a proxy device for
+it:
+
+```console
+./crosvm/target/release/crosvm run \
+  linux/build_virtio_media/arch/x86/boot/bzImage \
+  --rwdisk debian-12.img \
+  -p "root=/dev/vda1" \
+  --shared-dir "$PWD/virtio-media:vmedia:type=fs" \
+  --v4l2-proxy /dev/video0
+```
+
+The `/dev/video0` assumes that the `-d0` argument of `v4l2-ctl` returned the
+right device - adjust the argument for the actual device on your host.
+
+With the guest booted, we can insert the `v4l2-media` module again:
+
+```console
+insmod /root/vmedia/driver/virtio-media.ko
+```
+
+And check that our device is indeed recognized:
+
+```console
+v4l2-ctl -d0 --info
+```
+
+This should return sensibly the same output as when the command was run on the
+host, with the exception that the driver name is now `virtio_media`.
+
+Most USB cameras support streaming into motion-JPEG, so let's try to capture a
+stream:
+
+```console
+v4l2-ctl -d0 --stream-mmap --set-fmt-video pixelformat=MJPG --stream-to /root/vmedia/out.mpg
+```
+
+Use `Ctrl-C` to stop the capture. The stream has been recorded into the
+directory shared with the host, so let's exit the guest in order to check it
+out:
+
+```console
+poweroff
+```
+
+Then on the host, use your media player of choice to view the captured file:
+
+```console
+ffplay virtio-media/out.mpg
 ```
