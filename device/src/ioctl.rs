@@ -196,13 +196,13 @@ pub trait VirtioMediaIoctlHandler {
 
     fn enum_fmt(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2_fmtdesc> {
         unhandled_ioctl!()
     }
-    fn g_fmt(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
+    fn g_fmt(&mut self, session: &Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
     }
     /// Hook for the `VIDIOC_S_FMT` ioctl.
@@ -227,7 +227,7 @@ pub trait VirtioMediaIoctlHandler {
     }
     fn querybuf(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<V4l2Buffer> {
@@ -255,7 +255,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn g_parm(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
     ) -> IoctlResult<v4l2_streamparm> {
         unhandled_ioctl!()
@@ -268,7 +268,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_std(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
+    fn g_std(&mut self, session: &Self::Session) -> IoctlResult<v4l2_std_id> {
         unhandled_ioctl!()
     }
 
@@ -276,15 +276,15 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn enumstd(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_standard> {
+    fn enumstd(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_standard> {
         unhandled_ioctl!()
     }
 
-    fn enuminput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_input> {
+    fn enuminput(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_input> {
         unhandled_ioctl!()
     }
 
-    fn g_ctrl(&mut self, session: &mut Self::Session, id: u32) -> IoctlResult<v4l2_control> {
+    fn g_ctrl(&mut self, session: &Self::Session, id: u32) -> IoctlResult<v4l2_control> {
         unhandled_ioctl!()
     }
 
@@ -297,7 +297,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_tuner(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_tuner> {
+    fn g_tuner(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_tuner> {
         unhandled_ioctl!()
     }
 
@@ -310,7 +310,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_audio(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audio> {
+    fn g_audio(&mut self, session: &Self::Session) -> IoctlResult<v4l2_audio> {
         unhandled_ioctl!()
     }
 
@@ -325,7 +325,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn queryctrl(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         id: CtrlId,
         flags: QueryCtrlFlags,
     ) -> IoctlResult<v4l2_queryctrl> {
@@ -334,14 +334,14 @@ pub trait VirtioMediaIoctlHandler {
 
     fn querymenu(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         id: u32,
         index: u32,
     ) -> IoctlResult<v4l2_querymenu> {
         unhandled_ioctl!()
     }
 
-    fn g_input(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
+    fn g_input(&mut self, session: &Self::Session) -> IoctlResult<i32> {
         unhandled_ioctl!()
     }
 
@@ -349,7 +349,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_output(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
+    fn g_output(&mut self, session: &Self::Session) -> IoctlResult<i32> {
         unhandled_ioctl!()
     }
 
@@ -357,11 +357,11 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn enumoutput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_output> {
+    fn enumoutput(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_output> {
         unhandled_ioctl!()
     }
 
-    fn g_audout(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audioout> {
+    fn g_audout(&mut self, session: &Self::Session) -> IoctlResult<v4l2_audioout> {
         unhandled_ioctl!()
     }
 
@@ -369,11 +369,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_modulator(
-        &mut self,
-        session: &mut Self::Session,
-        index: u32,
-    ) -> IoctlResult<v4l2_modulator> {
+    fn g_modulator(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_modulator> {
         unhandled_ioctl!()
     }
 
@@ -386,11 +382,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_frequency(
-        &mut self,
-        session: &mut Self::Session,
-        tuner: u32,
-    ) -> IoctlResult<v4l2_frequency> {
+    fn g_frequency(&mut self, session: &Self::Session, tuner: u32) -> IoctlResult<v4l2_frequency> {
         unhandled_ioctl!()
     }
 
@@ -404,7 +396,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn querystd(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
+    fn querystd(&mut self, session: &Self::Session) -> IoctlResult<v4l2_std_id> {
         unhandled_ioctl!()
     }
 
@@ -413,29 +405,25 @@ pub trait VirtioMediaIoctlHandler {
     /// `queue` is guaranteed to match `format.type_`.
     fn try_fmt(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         unhandled_ioctl!()
     }
 
-    fn enumaudio(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_audio> {
+    fn enumaudio(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_audio> {
         unhandled_ioctl!()
     }
 
-    fn enumaudout(
-        &mut self,
-        session: &mut Self::Session,
-        index: u32,
-    ) -> IoctlResult<v4l2_audioout> {
+    fn enumaudout(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_audioout> {
         unhandled_ioctl!()
     }
 
     /// Ext control ioctls modify `ctrls` and `ctrl_array` in place instead of returning them.
     fn g_ext_ctrls(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -457,7 +445,7 @@ pub trait VirtioMediaIoctlHandler {
     /// Ext control ioctls modify `ctrls` and `ctrl_array` in place instead of returning them.
     fn try_ext_ctrls(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -468,7 +456,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn enum_framesizes(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         index: u32,
         pixel_format: u32,
     ) -> IoctlResult<v4l2_frmsizeenum> {
@@ -477,7 +465,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn enum_frameintervals(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         index: u32,
         pixel_format: u32,
         width: u32,
@@ -486,7 +474,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_enc_index(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_enc_idx> {
+    fn g_enc_index(&mut self, session: &Self::Session) -> IoctlResult<v4l2_enc_idx> {
         unhandled_ioctl!()
     }
 
@@ -500,7 +488,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn try_encoder_cmd(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         cmd: v4l2_encoder_cmd,
     ) -> IoctlResult<v4l2_encoder_cmd> {
         unhandled_ioctl!()
@@ -514,7 +502,7 @@ pub trait VirtioMediaIoctlHandler {
         unhandled_ioctl!()
     }
 
-    fn g_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
+    fn g_dv_timings(&mut self, session: &Self::Session) -> IoctlResult<v4l2_dv_timings> {
         unhandled_ioctl!()
     }
 
@@ -562,7 +550,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn g_selection(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         sel_type: SelectionType,
         sel_target: SelectionTarget,
     ) -> IoctlResult<v4l2_rect> {
@@ -590,7 +578,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn try_decoder_cmd(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         cmd: v4l2_decoder_cmd,
     ) -> IoctlResult<v4l2_decoder_cmd> {
         unhandled_ioctl!()
@@ -598,23 +586,23 @@ pub trait VirtioMediaIoctlHandler {
 
     fn enum_dv_timings(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         index: u32,
     ) -> IoctlResult<v4l2_dv_timings> {
         unhandled_ioctl!()
     }
 
-    fn query_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
+    fn query_dv_timings(&mut self, session: &Self::Session) -> IoctlResult<v4l2_dv_timings> {
         unhandled_ioctl!()
     }
 
-    fn dv_timings_cap(&self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings_cap> {
+    fn dv_timings_cap(&self, session: &Self::Session) -> IoctlResult<v4l2_dv_timings_cap> {
         unhandled_ioctl!()
     }
 
     fn enum_freq_bands(
         &self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         tuner: u32,
         type_: TunerType,
         index: u32,
@@ -624,7 +612,7 @@ pub trait VirtioMediaIoctlHandler {
 
     fn query_ext_ctrl(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         id: CtrlId,
         flags: QueryCtrlFlags,
     ) -> IoctlResult<v4l2_query_ext_ctrl> {

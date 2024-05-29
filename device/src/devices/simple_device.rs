@@ -314,7 +314,7 @@ where
 
     fn enum_fmt(
         &mut self,
-        _session: &mut Self::Session,
+        _session: &Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2_fmtdesc> {
@@ -328,11 +328,7 @@ where
         Ok(default_fmtdesc(queue))
     }
 
-    fn g_fmt(
-        &mut self,
-        _session: &mut Self::Session,
-        queue: QueueType,
-    ) -> IoctlResult<v4l2_format> {
+    fn g_fmt(&mut self, _session: &Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
         if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
@@ -355,7 +351,7 @@ where
 
     fn try_fmt(
         &mut self,
-        _session: &mut Self::Session,
+        _session: &Self::Session,
         queue: QueueType,
         _format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
@@ -463,7 +459,7 @@ where
 
     fn querybuf(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2r::ioctl::V4l2Buffer> {
@@ -526,7 +522,7 @@ where
         Ok(())
     }
 
-    fn g_input(&mut self, _session: &mut Self::Session) -> IoctlResult<i32> {
+    fn g_input(&mut self, _session: &Self::Session) -> IoctlResult<i32> {
         Ok(0)
     }
 
@@ -540,7 +536,7 @@ where
 
     fn enuminput(
         &mut self,
-        _session: &mut Self::Session,
+        _session: &Self::Session,
         index: u32,
     ) -> IoctlResult<bindings::v4l2_input> {
         match INPUTS.get(index as usize) {

@@ -608,14 +608,14 @@ where
 
     fn enum_fmt(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2_fmtdesc> {
         v4l2r::ioctl::enum_fmt(&session.device, queue, index).map_err(IntoErrno::into_errno)
     }
 
-    fn g_fmt(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
+    fn g_fmt(&mut self, session: &Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
         v4l2r::ioctl::g_fmt(&session.device, queue).map_err(IntoErrno::into_errno)
     }
 
@@ -680,7 +680,7 @@ where
 
     fn querybuf(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<V4l2Buffer> {
@@ -801,7 +801,7 @@ where
 
     fn g_parm(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         queue: QueueType,
     ) -> IoctlResult<v4l2_streamparm> {
         v4l2r::ioctl::g_parm(&session.device, queue).map_err(|e| e.into_errno())
@@ -815,7 +815,7 @@ where
         v4l2r::ioctl::s_parm(&session.device, parm).map_err(|e| e.into_errno())
     }
 
-    fn g_std(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
+    fn g_std(&mut self, session: &Self::Session) -> IoctlResult<v4l2_std_id> {
         v4l2r::ioctl::g_std(&session.device).map_err(|e| e.into_errno())
     }
 
@@ -823,15 +823,15 @@ where
         v4l2r::ioctl::s_std(&session.device, std).map_err(|e| e.into_errno())
     }
 
-    fn enumstd(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_standard> {
+    fn enumstd(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_standard> {
         v4l2r::ioctl::enumstd(&session.device, index).map_err(|e| e.into_errno())
     }
 
-    fn enuminput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_input> {
+    fn enuminput(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_input> {
         v4l2r::ioctl::enuminput(&session.device, index as usize).map_err(|e| e.into_errno())
     }
 
-    fn g_ctrl(&mut self, session: &mut Self::Session, id: u32) -> IoctlResult<v4l2_control> {
+    fn g_ctrl(&mut self, session: &Self::Session, id: u32) -> IoctlResult<v4l2_control> {
         v4l2r::ioctl::g_ctrl(&session.device, id)
             .map(|value| v4l2_control { id, value })
             .map_err(|e| e.into_errno())
@@ -848,7 +848,7 @@ where
             .map_err(|e| e.into_errno())
     }
 
-    fn g_tuner(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_tuner> {
+    fn g_tuner(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_tuner> {
         v4l2r::ioctl::g_tuner(&session.device, index).map_err(|e| e.into_errno())
     }
 
@@ -861,7 +861,7 @@ where
         v4l2r::ioctl::s_tuner(&session.device, index, mode).map_err(|e| e.into_errno())
     }
 
-    fn g_audio(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audio> {
+    fn g_audio(&mut self, session: &Self::Session) -> IoctlResult<v4l2_audio> {
         v4l2r::ioctl::g_audio(&session.device).map_err(|e| e.into_errno())
     }
 
@@ -876,7 +876,7 @@ where
 
     fn queryctrl(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         id: v4l2r::ioctl::CtrlId,
         flags: v4l2r::ioctl::QueryCtrlFlags,
     ) -> IoctlResult<v4l2_queryctrl> {
@@ -885,14 +885,14 @@ where
 
     fn querymenu(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         id: u32,
         index: u32,
     ) -> IoctlResult<v4l2_querymenu> {
         v4l2r::ioctl::querymenu(&session.device, id, index).map_err(|e| e.into_errno())
     }
 
-    fn g_input(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
+    fn g_input(&mut self, session: &Self::Session) -> IoctlResult<i32> {
         v4l2r::ioctl::g_input(&session.device)
             .map(|i| i as i32)
             .map_err(|e| e.into_errno())
@@ -904,7 +904,7 @@ where
             .map_err(|e| e.into_errno())
     }
 
-    fn g_output(&mut self, session: &mut Self::Session) -> IoctlResult<i32> {
+    fn g_output(&mut self, session: &Self::Session) -> IoctlResult<i32> {
         v4l2r::ioctl::g_output(&session.device)
             .map(|o| o as i32)
             .map_err(|e| e.into_errno())
@@ -916,11 +916,11 @@ where
             .map_err(|e| e.into_errno())
     }
 
-    fn enumoutput(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_output> {
+    fn enumoutput(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_output> {
         v4l2r::ioctl::enumoutput(&session.device, index as usize).map_err(|e| e.into_errno())
     }
 
-    fn g_audout(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_audioout> {
+    fn g_audout(&mut self, session: &Self::Session) -> IoctlResult<v4l2_audioout> {
         v4l2r::ioctl::g_audout(&session.device).map_err(|e| e.into_errno())
     }
 
@@ -928,11 +928,7 @@ where
         v4l2r::ioctl::s_audout(&session.device, index).map_err(|e| e.into_errno())
     }
 
-    fn g_modulator(
-        &mut self,
-        session: &mut Self::Session,
-        index: u32,
-    ) -> IoctlResult<v4l2_modulator> {
+    fn g_modulator(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_modulator> {
         v4l2r::ioctl::g_modulator(&session.device, index).map_err(|e| e.into_errno())
     }
 
@@ -945,11 +941,7 @@ where
         v4l2r::ioctl::s_modulator(&session.device, index, flags).map_err(|e| e.into_errno())
     }
 
-    fn g_frequency(
-        &mut self,
-        session: &mut Self::Session,
-        tuner: u32,
-    ) -> IoctlResult<v4l2_frequency> {
+    fn g_frequency(&mut self, session: &Self::Session, tuner: u32) -> IoctlResult<v4l2_frequency> {
         v4l2r::ioctl::g_frequency(&session.device, tuner).map_err(|e| e.into_errno())
     }
 
@@ -964,35 +956,31 @@ where
             .map_err(|e| e.into_errno())
     }
 
-    fn querystd(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_std_id> {
+    fn querystd(&mut self, session: &Self::Session) -> IoctlResult<v4l2_std_id> {
         v4l2r::ioctl::querystd::<v4l2_std_id>(&session.device).map_err(|e| e.into_errno())
     }
 
     fn try_fmt(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         _queue: QueueType,
         format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
         v4l2r::ioctl::try_fmt::<_, v4l2_format>(&session.device, format).map_err(|e| e.into_errno())
     }
 
-    fn enumaudio(&mut self, session: &mut Self::Session, index: u32) -> IoctlResult<v4l2_audio> {
+    fn enumaudio(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_audio> {
         v4l2r::ioctl::enumaudio::<v4l2_audio>(&session.device, index).map_err(|e| e.into_errno())
     }
 
-    fn enumaudout(
-        &mut self,
-        session: &mut Self::Session,
-        index: u32,
-    ) -> IoctlResult<v4l2_audioout> {
+    fn enumaudout(&mut self, session: &Self::Session, index: u32) -> IoctlResult<v4l2_audioout> {
         v4l2r::ioctl::enumaudout::<v4l2_audioout>(&session.device, index)
             .map_err(|e| e.into_errno())
     }
 
     fn g_ext_ctrls(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -1028,7 +1016,7 @@ where
 
     fn try_ext_ctrls(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         which: CtrlWhich,
         ctrls: &mut v4l2_ext_controls,
         ctrl_array: &mut Vec<v4l2_ext_control>,
@@ -1046,7 +1034,7 @@ where
 
     fn enum_framesizes(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         index: u32,
         pixel_format: u32,
     ) -> IoctlResult<v4l2_frmsizeenum> {
@@ -1056,7 +1044,7 @@ where
 
     fn enum_frameintervals(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         index: u32,
         pixel_format: u32,
         width: u32,
@@ -1072,7 +1060,7 @@ where
         .map_err(|e| e.into_errno())
     }
 
-    fn g_enc_index(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_enc_idx> {
+    fn g_enc_index(&mut self, session: &Self::Session) -> IoctlResult<v4l2_enc_idx> {
         v4l2r::ioctl::g_enc_index(&session.device).map_err(|e| e.into_errno())
     }
 
@@ -1086,7 +1074,7 @@ where
 
     fn try_encoder_cmd(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         cmd: v4l2_encoder_cmd,
     ) -> IoctlResult<v4l2_encoder_cmd> {
         v4l2r::ioctl::try_encoder_cmd(&session.device, cmd).map_err(|e| e.into_errno())
@@ -1100,7 +1088,7 @@ where
         v4l2r::ioctl::s_dv_timings(&session.device, timings).map_err(|e| e.into_errno())
     }
 
-    fn g_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
+    fn g_dv_timings(&mut self, session: &Self::Session) -> IoctlResult<v4l2_dv_timings> {
         v4l2r::ioctl::g_dv_timings(&session.device).map_err(|e| e.into_errno())
     }
 
@@ -1183,7 +1171,7 @@ where
 
     fn g_selection(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         sel_type: SelectionType,
         sel_target: SelectionTarget,
     ) -> IoctlResult<v4l2_rect> {
@@ -1212,7 +1200,7 @@ where
 
     fn try_decoder_cmd(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         cmd: v4l2_decoder_cmd,
     ) -> IoctlResult<v4l2_decoder_cmd> {
         v4l2r::ioctl::try_decoder_cmd(&session.device, cmd).map_err(|e| e.into_errno())
@@ -1220,23 +1208,23 @@ where
 
     fn enum_dv_timings(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         index: u32,
     ) -> IoctlResult<v4l2_dv_timings> {
         v4l2r::ioctl::enum_dv_timings(&session.device, index).map_err(|e| e.into_errno())
     }
 
-    fn query_dv_timings(&mut self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings> {
+    fn query_dv_timings(&mut self, session: &Self::Session) -> IoctlResult<v4l2_dv_timings> {
         v4l2r::ioctl::query_dv_timings(&session.device).map_err(|e| e.into_errno())
     }
 
-    fn dv_timings_cap(&self, session: &mut Self::Session) -> IoctlResult<v4l2_dv_timings_cap> {
+    fn dv_timings_cap(&self, session: &Self::Session) -> IoctlResult<v4l2_dv_timings_cap> {
         v4l2r::ioctl::dv_timings_cap(&session.device).map_err(|e| e.into_errno())
     }
 
     fn enum_freq_bands(
         &self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         tuner: u32,
         type_: TunerType,
         index: u32,
@@ -1247,7 +1235,7 @@ where
 
     fn query_ext_ctrl(
         &mut self,
-        session: &mut Self::Session,
+        session: &Self::Session,
         id: CtrlId,
         flags: QueryCtrlFlags,
     ) -> IoctlResult<v4l2_query_ext_ctrl> {
