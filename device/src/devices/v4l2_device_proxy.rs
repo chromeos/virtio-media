@@ -765,8 +765,7 @@ where
                 .map_err(|_| libc::EINVAL)?;
         session.register_userptr_addresses(&host_buffer, &guest_buffer, guest_resources);
         let queue = host_buffer.queue();
-        let index = host_buffer.index() as usize;
-        let out_buffer = v4l2r::ioctl::qbuf(&session.device, queue, index, host_buffer)
+        let out_buffer = v4l2r::ioctl::qbuf(&session.device, host_buffer)
             .map_err(|e| e.into_errno())
             .and_then(|host_out_buffer| {
                 // TODO if we had a PREPARE_BUF before, do we need to patch the addresses
@@ -1157,9 +1156,7 @@ where
             guest_v4l2_buffer_to_host(&guest_buffer, guest_regions, &self.mem)
                 .map_err(|_| libc::EINVAL)?;
         session.register_userptr_addresses(&host_buffer, &guest_buffer, guest_resources);
-        let queue = host_buffer.queue();
-        let index = host_buffer.index() as usize;
-        v4l2r::ioctl::prepare_buf(&session.device, queue, index, host_buffer)
+        v4l2r::ioctl::prepare_buf(&session.device, host_buffer)
             .map_err(|e| e.into_errno())
             .and_then(|host_out_buffer| {
                 host_v4l2_buffer_to_guest(&host_out_buffer, &session.userptr_buffers).map_err(|e| {
