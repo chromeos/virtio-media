@@ -47,6 +47,7 @@
 pub mod devices;
 pub mod ioctl;
 pub mod mmap;
+pub mod poll;
 pub mod protocol;
 
 pub use v4l2r;

@@ -10,6 +10,7 @@ use std::os::fd::AsFd;
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use log::error;
 use log::warn;
@@ -44,6 +45,9 @@ use v4l2r::bindings::v4l2_standard;
 use v4l2r::bindings::v4l2_std_id;
 use v4l2r::bindings::v4l2_streamparm;
 use v4l2r::bindings::v4l2_tuner;
+use v4l2r::device::poller::DeviceEvent;
+use v4l2r::device::poller::PollEvent;
+use v4l2r::device::poller::Poller;
 pub use v4l2r::device::Device as V4l2Device;
 use v4l2r::device::DeviceConfig;
 use v4l2r::device::DeviceOpenError;
@@ -77,6 +81,7 @@ use crate::ioctl::virtio_media_dispatch_ioctl;
 use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
 use crate::mmap::MmapMappingManager;
+use crate::poll::SessionPoller;
 use crate::protocol::DequeueBufferEvent;
 use crate::protocol::SessionEvent;
 use crate::protocol::SgEntry;
@@ -219,6 +224,10 @@ struct V4l2UserPlaneInfo<R> {
 pub struct V4l2Session<M: VirtioMediaGuestMemoryMapper> {
     id: u32,
     device: Arc<V4l2Device>,
+    /// Proxy epoll for polling `device`. We need to use a proxy here because V4L2 events are
+    /// signaled using `EPOLLPRI`, and we sometimes need to stop listening to the `CAPTURE` queue.
+    /// `poller`'s FD is what is actually added to the client's `SessionPoller`.
+    poller: Poller,
 
     /// Type of the capture queue, if one has been set up.
     capture_queue_type: Option<QueueType>,
@@ -244,9 +253,14 @@ where
     M: VirtioMediaGuestMemoryMapper,
 {
     fn new(id: u32, device: Arc<V4l2Device>) -> Self {
+        // Only listen to V4L2 events for now.
+        let mut poller = Poller::new(Arc::clone(&device)).unwrap();
+        poller.enable_event(DeviceEvent::V4L2Event).unwrap();
+
         Self {
             id,
             device,
+            poller,
             capture_queue_type: None,
             output_queue_type: None,
             capture_streaming: false,
@@ -294,51 +308,6 @@ where
     }
 }
 
-/// Trait allowing a session to be polled for events and capture buffers.
-///
-/// The worker that runs a `V4l2ProxyDevice` typically polls on file descriptors for available
-/// CAPTURE buffers and outstanding session events. However V4L2's poll logic returns with the
-/// `POLLERR` flag if a CAPTURE queue is polled while not streaming or if zero CAPTURE buffers have
-/// been queued. To avoid this, the device needs to disable polling when this would happen, and
-/// re-enable it when conditions are adequate.
-///
-/// If the worker does not need such a feature, `()` can be passed as a no-op type that implements
-/// this interface.
-pub trait SessionPoller {
-    /// Add a newly created `session` to be polled for events (not capture buffers).
-    fn add_session(&self, session: &V4l2Device, session_id: u32) -> Result<(), i32>;
-    /// Stop polling all activity on `session`.
-    fn remove_session(&self, session: &V4l2Device);
-
-    /// Start or stop polling for available CAPTURE buffers on `session`, on which `add_session`
-    /// has been previously invoked. Events are always polled regardless of the value of `poll`.
-    fn poll_capture_buffers(
-        &self,
-        session: &V4l2Device,
-        session_id: u32,
-        poll: bool,
-    ) -> Result<(), i32>;
-}
-
-/// No-op implementation of `SessionPoller`. This is here for convenience but should probably not
-/// be used.
-impl SessionPoller for () {
-    fn add_session(&self, _session: &V4l2Device, _session_id: u32) -> Result<(), i32> {
-        Ok(())
-    }
-
-    fn remove_session(&self, _session: &V4l2Device) {}
-
-    fn poll_capture_buffers(
-        &self,
-        _session: &V4l2Device,
-        _session_id: u32,
-        _poll: bool,
-    ) -> Result<(), i32> {
-        Ok(())
-    }
-}
-
 /// Information about a given MMAP memory plane.
 ///
 /// We keep these around indexed by the memory offset in order to service MMAP commands. Only used
@@ -381,7 +350,9 @@ pub struct V4l2ProxyDevice<
     mmap_manager: MmapMappingManager<HM>,
 }
 
+#[derive(Debug)]
 pub struct DequeueEventError(pub i32);
+#[derive(Debug)]
 pub struct DequeueBufferError(pub i32);
 
 impl<Q, M, HM, P> V4l2ProxyDevice<Q, M, HM, P>
@@ -413,7 +384,7 @@ where
         // Garbage-collect buffers that can be deleted.
         self.mmap_buffers.retain(|_, b| b.active);
 
-        self.session_poller.remove_session(&session.device);
+        self.session_poller.remove_session(session.poller.as_fd());
     }
 
     /// Clear all the previous buffer information for this queue, and insert new information if the
@@ -486,10 +457,7 @@ where
     /// Dequeue all pending events for `session` and send them to the guest.
     ///
     /// In case of error, the session should be considered invalid and destroyed.
-    pub fn dequeue_events(
-        &mut self,
-        session: &mut V4l2Session<M>,
-    ) -> Result<(), DequeueEventError> {
+    fn dequeue_events(&mut self, session: &mut V4l2Session<M>) -> Result<(), DequeueEventError> {
         loop {
             match v4l2r::ioctl::dqevent::<v4l2_event>(&session.device) {
                 Ok(event) => self
@@ -509,7 +477,7 @@ where
     /// `evt_queue`.
     ///
     /// In case of error, the session should be considered invalid and destroyed.
-    pub fn dequeue_output_buffers(
+    fn dequeue_output_buffers(
         &mut self,
         session: &mut V4l2Session<M>,
     ) -> Result<(), DequeueBufferError> {
@@ -549,10 +517,9 @@ where
     /// Attempt to dequeue a single CAPTURE buffer and send the corresponding event to `evt_queue`.
     ///
     /// In case of error, the session should be considered invalid and destroyed.
-    pub fn dequeue_capture_buffer(
+    fn dequeue_capture_buffer(
         &mut self,
         session: &mut V4l2Session<M>,
-        wait_ctx: &P,
     ) -> Result<(), DequeueBufferError> {
         let capture_queue_type = match session.capture_queue_type {
             Some(queue_type) => queue_type,
@@ -582,7 +549,7 @@ where
             // This may or may not be needed...
             v4l2_buffer.flags().contains(BufferFlags::LAST)
         {
-            if let Err(e) = wait_ctx.poll_capture_buffers(&session.device, session.id, false) {
+            if let Err(e) = session.poller.disable_event(DeviceEvent::CaptureReady) {
                 error!("cannot disable CAPTURE polling after last buffer: {}", e);
             }
         }
@@ -592,6 +559,26 @@ where
                 session.id,
                 v4l2_buffer,
             )));
+
+        Ok(())
+    }
+
+    pub fn process_events(&mut self, session: &mut V4l2Session<M>) -> Result<(), ()> {
+        let events = session.poller.poll(Some(Duration::ZERO)).map_err(|_| ())?;
+
+        for event in events {
+            match event {
+                PollEvent::Device(DeviceEvent::CaptureReady) => {
+                    self.dequeue_capture_buffer(session).map_err(|_| ())?;
+                    // Try to release OUTPUT buffers while we are at it.
+                    self.dequeue_output_buffers(session).map_err(|_| ())?;
+                }
+                PollEvent::Device(DeviceEvent::V4L2Event) => {
+                    self.dequeue_events(session).map_err(|_| ())?
+                }
+                _ => panic!(),
+            }
+        }
 
         Ok(())
     }
@@ -652,11 +639,7 @@ where
                     session.capture_streaming = false;
                     session.capture_num_queued = 0;
                     if was_polling_capture {
-                        if let Err(e) = self.session_poller.poll_capture_buffers(
-                            &session.device,
-                            session.id,
-                            false,
-                        ) {
+                        if let Err(e) = session.poller.disable_event(DeviceEvent::CaptureReady) {
                             error!(
                                 "cannot disable CAPTURE polling after REQBUFS(0) ioctl: {}",
                                 e
@@ -703,10 +686,7 @@ where
             {
                 session.capture_streaming = true;
                 if session.should_poll_capture() {
-                    if let Err(e) =
-                        self.session_poller
-                            .poll_capture_buffers(&session.device, session.id, true)
-                    {
+                    if let Err(e) = session.poller.enable_event(DeviceEvent::CaptureReady) {
                         error!("cannot enable CAPTURE polling after STREAMON ioctl: {}", e);
                     }
                 }
@@ -729,10 +709,7 @@ where
                 session.capture_streaming = false;
                 session.capture_num_queued = 0;
                 if was_polling_capture {
-                    if let Err(e) =
-                        self.session_poller
-                            .poll_capture_buffers(&session.device, session.id, false)
-                    {
+                    if let Err(e) = session.poller.disable_event(DeviceEvent::CaptureReady) {
                         error!(
                             "cannot disable CAPTURE polling after STREAMOFF ioctl: {}",
                             e
@@ -781,10 +758,7 @@ where
                 let was_polling_capture = session.should_poll_capture();
                 session.capture_num_queued += 1;
                 if !was_polling_capture && session.should_poll_capture() {
-                    if let Err(e) =
-                        self.session_poller
-                            .poll_capture_buffers(&session.device, session.id, true)
-                    {
+                    if let Err(e) = session.poller.enable_event(DeviceEvent::CaptureReady) {
                         error!("cannot enable CAPTURE polling after QBUF ioctl: {}", e);
                     }
                 }
@@ -1256,7 +1230,10 @@ where
         match V4l2Device::open(&self.device_path, DeviceConfig::new().non_blocking_dqbuf()) {
             Ok(device) => {
                 let session = V4l2Session::new(session_id, Arc::new(device));
-                match self.session_poller.add_session(&session.device, session.id) {
+                match self
+                    .session_poller
+                    .add_session(session.poller.as_fd(), session.id)
+                {
                     Ok(()) => Ok(session),
                     Err(e) => {
                         error!("failed to add FD of new V4L2 session for polling: {}", e);
