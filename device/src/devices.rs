@@ -31,3 +31,5 @@ pub use simple_device::SimpleCaptureDevice;
 
 pub mod v4l2_device_proxy;
 pub use v4l2_device_proxy::V4l2ProxyDevice;
+
+pub mod video_decoder;

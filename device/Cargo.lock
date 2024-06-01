@@ -118,7 +118,7 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 [[package]]
 name = "v4l2r"
 version = "0.0.2"
-source = "git+https://github.com/Gnurou/v4l2r?rev=d056dd8#d056dd8c8fb4e2497b9033f49e7547c021774a22"
+source = "git+https://github.com/Gnurou/v4l2r?rev=ebe0b83#ebe0b83e80a27c45af468264bb5dad4c59d7c2c5"
 dependencies = [
  "anyhow",
  "bitflags",
