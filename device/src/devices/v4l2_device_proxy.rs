@@ -355,6 +355,9 @@ pub struct DequeueEventError(pub i32);
 #[derive(Debug)]
 pub struct DequeueBufferError(pub i32);
 
+#[derive(Debug)]
+pub struct ProcessEventsError;
+
 impl<Q, M, HM, P> V4l2ProxyDevice<Q, M, HM, P>
 where
     Q: VirtioMediaEventQueue,
@@ -563,19 +566,27 @@ where
         Ok(())
     }
 
-    pub fn process_events(&mut self, session: &mut V4l2Session<M>) -> Result<(), ()> {
-        let events = session.poller.poll(Some(Duration::ZERO)).map_err(|_| ())?;
+    pub fn process_events(
+        &mut self,
+        session: &mut V4l2Session<M>,
+    ) -> Result<(), ProcessEventsError> {
+        let events = session
+            .poller
+            .poll(Some(Duration::ZERO))
+            .map_err(|_| ProcessEventsError)?;
 
         for event in events {
             match event {
                 PollEvent::Device(DeviceEvent::CaptureReady) => {
-                    self.dequeue_capture_buffer(session).map_err(|_| ())?;
+                    self.dequeue_capture_buffer(session)
+                        .map_err(|_| ProcessEventsError)?;
                     // Try to release OUTPUT buffers while we are at it.
-                    self.dequeue_output_buffers(session).map_err(|_| ())?;
+                    self.dequeue_output_buffers(session)
+                        .map_err(|_| ProcessEventsError)?;
                 }
-                PollEvent::Device(DeviceEvent::V4L2Event) => {
-                    self.dequeue_events(session).map_err(|_| ())?
-                }
+                PollEvent::Device(DeviceEvent::V4L2Event) => self
+                    .dequeue_events(session)
+                    .map_err(|_| ProcessEventsError)?,
                 _ => panic!(),
             }
         }
