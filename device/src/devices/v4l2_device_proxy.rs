@@ -1295,7 +1295,11 @@ where
             .poll(Some(Duration::ZERO))
             .map_err(|_| libc::EIO)?;
 
+        let mut has_event = false;
+
         for event in events {
+            has_event = true;
+
             match event {
                 PollEvent::Device(DeviceEvent::CaptureReady) => {
                     self.dequeue_capture_buffer(session).map_err(|e| e.0)?;
@@ -1307,6 +1311,10 @@ where
                 }
                 _ => panic!(),
             }
+        }
+
+        if !has_event {
+            log::warn!("process_events called but no event was pending");
         }
 
         Ok(())
