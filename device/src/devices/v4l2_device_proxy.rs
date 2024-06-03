@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::io::Result as IoResult;
 use std::os::fd::AsFd;
+use std::os::fd::BorrowedFd;
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -81,7 +82,6 @@ use crate::ioctl::virtio_media_dispatch_ioctl;
 use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
 use crate::mmap::MmapMappingManager;
-use crate::poll::SessionPoller;
 use crate::protocol::DequeueBufferEvent;
 use crate::protocol::SessionEvent;
 use crate::protocol::SgEntry;
@@ -89,6 +89,7 @@ use crate::protocol::V4l2Event;
 use crate::protocol::V4l2Ioctl;
 use crate::protocol::VIRTIO_MEDIA_MMAP_FLAG_RW;
 use crate::VirtioMediaDevice;
+use crate::VirtioMediaDeviceSession;
 use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaGuestMemoryMapper;
 use crate::VirtioMediaHostMemoryMapper;
@@ -226,7 +227,7 @@ pub struct V4l2Session<M: VirtioMediaGuestMemoryMapper> {
     device: Arc<V4l2Device>,
     /// Proxy epoll for polling `device`. We need to use a proxy here because V4L2 events are
     /// signaled using `EPOLLPRI`, and we sometimes need to stop listening to the `CAPTURE` queue.
-    /// `poller`'s FD is what is actually added to the client's `SessionPoller`.
+    /// `poller`'s FD is what is actually added to the client's session poller.
     poller: Poller,
 
     /// Type of the capture queue, if one has been set up.
@@ -246,6 +247,12 @@ pub struct V4l2Session<M: VirtioMediaGuestMemoryMapper> {
     /// TODO this is not properly cleared. We should probably record the session ID and queue in
     /// order to remove the records upon REQBUFS or session deletion?
     userptr_buffers: BTreeMap<u64, V4l2UserPlaneInfo<M::GuestMemoryMapping>>,
+}
+
+impl<M: VirtioMediaGuestMemoryMapper> VirtioMediaDeviceSession for V4l2Session<M> {
+    fn poll_fd(&self) -> Option<BorrowedFd> {
+        Some(self.poller.as_fd())
+    }
 }
 
 impl<M> V4l2Session<M>
@@ -334,14 +341,12 @@ pub struct V4l2ProxyDevice<
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
     HM: VirtioMediaHostMemoryMapper,
-    P: SessionPoller = (),
 > {
     /// `/dev/videoX` host device path.
     device_path: PathBuf,
 
     mem: M,
     evt_queue: Q,
-    session_poller: P,
 
     /// Map of memory offsets to detailed buffer information. Only used for queues which memory
     /// type is MMAP.
@@ -355,21 +360,16 @@ pub struct DequeueEventError(pub i32);
 #[derive(Debug)]
 pub struct DequeueBufferError(pub i32);
 
-#[derive(Debug)]
-pub struct ProcessEventsError;
-
-impl<Q, M, HM, P> V4l2ProxyDevice<Q, M, HM, P>
+impl<Q, M, HM> V4l2ProxyDevice<Q, M, HM>
 where
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
     HM: VirtioMediaHostMemoryMapper,
-    P: SessionPoller,
 {
-    pub fn new(device_path: PathBuf, evt_queue: Q, mem: M, mapper: HM, session_poller: P) -> Self {
+    pub fn new(device_path: PathBuf, evt_queue: Q, mem: M, mapper: HM) -> Self {
         Self {
             mem,
             evt_queue,
-            session_poller,
             device_path,
             mmap_buffers: Default::default(),
             mmap_manager: MmapMappingManager::from(mapper),
@@ -386,8 +386,6 @@ where
         }
         // Garbage-collect buffers that can be deleted.
         self.mmap_buffers.retain(|_, b| b.active);
-
-        self.session_poller.remove_session(session.poller.as_fd());
     }
 
     /// Clear all the previous buffer information for this queue, and insert new information if the
@@ -565,42 +563,13 @@ where
 
         Ok(())
     }
-
-    pub fn process_events(
-        &mut self,
-        session: &mut V4l2Session<M>,
-    ) -> Result<(), ProcessEventsError> {
-        let events = session
-            .poller
-            .poll(Some(Duration::ZERO))
-            .map_err(|_| ProcessEventsError)?;
-
-        for event in events {
-            match event {
-                PollEvent::Device(DeviceEvent::CaptureReady) => {
-                    self.dequeue_capture_buffer(session)
-                        .map_err(|_| ProcessEventsError)?;
-                    // Try to release OUTPUT buffers while we are at it.
-                    self.dequeue_output_buffers(session)
-                        .map_err(|_| ProcessEventsError)?;
-                }
-                PollEvent::Device(DeviceEvent::V4L2Event) => self
-                    .dequeue_events(session)
-                    .map_err(|_| ProcessEventsError)?,
-                _ => panic!(),
-            }
-        }
-
-        Ok(())
-    }
 }
 
-impl<Q, M, HM, P> VirtioMediaIoctlHandler for V4l2ProxyDevice<Q, M, HM, P>
+impl<Q, M, HM> VirtioMediaIoctlHandler for V4l2ProxyDevice<Q, M, HM>
 where
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
     HM: VirtioMediaHostMemoryMapper,
-    P: SessionPoller,
 {
     type Session = V4l2Session<M>;
 
@@ -1226,12 +1195,11 @@ where
     }
 }
 
-impl<Q, M, HM, P, Reader, Writer> VirtioMediaDevice<Reader, Writer> for V4l2ProxyDevice<Q, M, HM, P>
+impl<Q, M, HM, Reader, Writer> VirtioMediaDevice<Reader, Writer> for V4l2ProxyDevice<Q, M, HM>
 where
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
     HM: VirtioMediaHostMemoryMapper,
-    P: SessionPoller,
     Reader: std::io::Read,
     Writer: std::io::Write,
 {
@@ -1239,19 +1207,7 @@ where
 
     fn new_session(&mut self, session_id: u32) -> Result<Self::Session, i32> {
         match V4l2Device::open(&self.device_path, DeviceConfig::new().non_blocking_dqbuf()) {
-            Ok(device) => {
-                let session = V4l2Session::new(session_id, Arc::new(device));
-                match self
-                    .session_poller
-                    .add_session(session.poller.as_fd(), session.id)
-                {
-                    Ok(()) => Ok(session),
-                    Err(e) => {
-                        error!("failed to add FD of new V4L2 session for polling: {}", e);
-                        Err(e)
-                    }
-                }
-            }
+            Ok(device) => Ok(V4l2Session::new(session_id, Arc::new(device))),
             Err(DeviceOpenError::OpenError(e)) => Err(e as i32),
             Err(DeviceOpenError::QueryCapError(QueryCapError::IoctlError(e))) => Err(e as i32),
         }
@@ -1331,5 +1287,28 @@ where
         writer: &mut Writer,
     ) -> IoResult<()> {
         virtio_media_dispatch_ioctl(self, session, ioctl, reader, writer)
+    }
+
+    fn process_events(&mut self, session: &mut Self::Session) -> Result<(), i32> {
+        let events = session
+            .poller
+            .poll(Some(Duration::ZERO))
+            .map_err(|_| libc::EIO)?;
+
+        for event in events {
+            match event {
+                PollEvent::Device(DeviceEvent::CaptureReady) => {
+                    self.dequeue_capture_buffer(session).map_err(|e| e.0)?;
+                    // Try to release OUTPUT buffers while we are at it.
+                    self.dequeue_output_buffers(session).map_err(|e| e.0)?;
+                }
+                PollEvent::Device(DeviceEvent::V4L2Event) => {
+                    self.dequeue_events(session).map_err(|e| e.0)?
+                }
+                _ => panic!(),
+            }
+        }
+
+        Ok(())
     }
 }

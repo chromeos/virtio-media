@@ -24,12 +24,15 @@ pub trait SessionPoller: Clone {
     fn remove_session(&self, session: BorrowedFd);
 }
 
-/// No-op implementation of `SessionPoller`. This is here for convenience but should probably not
-/// be used.
+/// No-op implementation of `SessionPoller`. This should only be used when using
+/// `VirtioMediaDeviceRunner` with a device that doesn't need to be polled, otherwise the methods
+/// might be called, which will make the program panic.
 impl SessionPoller for () {
     fn add_session(&self, _session: BorrowedFd, _session_id: u32) -> Result<(), i32> {
-        Ok(())
+        panic!("this device needs a proper SessionPoller - aborting")
     }
 
-    fn remove_session(&self, _session: BorrowedFd) {}
+    fn remove_session(&self, _session: BorrowedFd) {
+        panic!("this device needs a proper SessionPoller - aborting")
+    }
 }

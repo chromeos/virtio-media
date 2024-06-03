@@ -50,6 +50,7 @@ pub mod mmap;
 pub mod poll;
 pub mod protocol;
 
+use poll::SessionPoller;
 pub use v4l2r;
 
 use std::collections::HashMap;
@@ -194,6 +195,16 @@ impl VirtioMediaHostMemoryMapper for () {
     }
 }
 
+pub trait VirtioMediaDeviceSession {
+    /// Returns the file descriptor that the client can listen to in order to know when a session
+    /// event has occurred. The FD signals that it is readable when the device's `process_events`
+    /// should be called.
+    ///
+    /// If this method returns `None`, then the session does not need to be polled by the client,
+    /// and `process_events` does not need to be called either.
+    fn poll_fd(&self) -> Option<BorrowedFd>;
+}
+
 /// Trait for implementing virtio-media devices.
 ///
 /// The preferred way to use this trait is to wrap implementations in a
@@ -201,7 +212,7 @@ impl VirtioMediaHostMemoryMapper for () {
 /// [`ioctl::VirtioMediaIoctlHandler`] should also be used to automatically parse and dispatch
 /// ioctls.
 pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
-    type Session;
+    type Session: VirtioMediaDeviceSession;
 
     /// Create a new session which ID is `session_id`.
     ///
@@ -247,42 +258,51 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
     /// Only returns an error if the response could not be properly written ; all other errors are
     /// propagated to the guest.
     fn do_munmap(&mut self, guest_addr: u64) -> Result<(), i32>;
+
+    fn process_events(&mut self, _session: &mut Self::Session) -> Result<(), i32> {
+        panic!("process_events needs to be implemented")
+    }
 }
 
 /// Wrapping structure for a `VirtioMediaDevice` managing its sessions and providing methods for
 /// processing its commands.
-pub struct VirtioMediaDeviceRunner<Reader, Writer, Device>
+pub struct VirtioMediaDeviceRunner<Reader, Writer, Device, Poller>
 where
     Reader: std::io::Read,
     Writer: std::io::Write,
     Device: VirtioMediaDevice<Reader, Writer>,
+    Poller: SessionPoller,
 {
     pub device: Device,
+    poller: Poller,
     pub sessions: HashMap<u32, Device::Session>,
     // TODO: recycle session ids...
     session_id_counter: u32,
 }
 
-impl<Reader, Writer, Device> From<Device> for VirtioMediaDeviceRunner<Reader, Writer, Device>
+impl<Reader, Writer, Device, Poller> VirtioMediaDeviceRunner<Reader, Writer, Device, Poller>
 where
     Reader: std::io::Read,
     Writer: std::io::Write,
     Device: VirtioMediaDevice<Reader, Writer>,
+    Poller: SessionPoller,
 {
-    fn from(device: Device) -> Self {
+    pub fn new(device: Device, poller: Poller) -> Self {
         Self {
             device,
+            poller,
             sessions: Default::default(),
             session_id_counter: 0,
         }
     }
 }
 
-impl<Reader, Writer, Device> VirtioMediaDeviceRunner<Reader, Writer, Device>
+impl<Reader, Writer, Device, Poller> VirtioMediaDeviceRunner<Reader, Writer, Device, Poller>
 where
     Reader: std::io::Read,
     Writer: std::io::Write,
     Device: VirtioMediaDevice<Reader, Writer>,
+    Poller: SessionPoller,
 {
     /// Handle a single command from the virtio queue.
     ///
@@ -309,9 +329,27 @@ where
 
                 match self.device.new_session(session_id) {
                     Ok(session) => {
-                        self.session_id_counter += 1;
-                        self.sessions.insert(session_id, session);
-                        writer.write_response(OpenResp::ok(session_id))
+                        if let Some(fd) = session.poll_fd() {
+                            match self.poller.add_session(fd, session_id) {
+                                Ok(()) => {
+                                    self.sessions.insert(session_id, session);
+                                    self.session_id_counter += 1;
+                                    writer.write_response(OpenResp::ok(session_id))
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "failed to register poll FD for new session: {}",
+                                        e
+                                    );
+                                    self.device.close_session(session);
+                                    writer.write_err_response(e)
+                                }
+                            }
+                        } else {
+                            self.sessions.insert(session_id, session);
+                            self.session_id_counter += 1;
+                            writer.write_response(OpenResp::ok(session_id))
+                        }
                     }
                     Err(e) => writer.write_err_response(e),
                 }
@@ -323,6 +361,9 @@ where
                 .context("while reading CLOSE command")
                 .map(|CloseCmd { session_id, .. }| {
                     if let Some(session) = self.sessions.remove(&session_id) {
+                        if let Some(fd) = session.poll_fd() {
+                            self.poller.remove_session(fd);
+                        }
                         self.device.close_session(session);
                     }
                 }),

@@ -14,6 +14,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::os::fd::AsFd;
+use std::os::fd::BorrowedFd;
 
 use memfd::Memfd;
 use v4l2r::bindings;
@@ -40,6 +41,7 @@ use crate::protocol::V4l2Event;
 use crate::protocol::V4l2Ioctl;
 use crate::protocol::VIRTIO_MEDIA_MMAP_FLAG_RW;
 use crate::VirtioMediaDevice;
+use crate::VirtioMediaDeviceSession;
 use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaHostMemoryMapper;
 
@@ -112,6 +114,12 @@ pub struct SimpleCaptureDeviceSession {
     queued_buffers: VecDeque<usize>,
     /// Is the session currently streaming?
     streaming: bool,
+}
+
+impl VirtioMediaDeviceSession for SimpleCaptureDeviceSession {
+    fn poll_fd(&self) -> Option<BorrowedFd> {
+        None
+    }
 }
 
 impl SimpleCaptureDeviceSession {
