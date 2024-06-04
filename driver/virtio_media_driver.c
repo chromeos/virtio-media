@@ -38,6 +38,9 @@
 /* High-enough number to not conflict with the official virtio device numbers */
 #define VIRTIO_ID_MEDIA 0x3b
 
+/* ID of the SHM region into which MMAP buffer will be mapped. */
+#define VIRTIO_MEDIA_SHM_MMAP 0
+
 /*
  * Name of the driver to expose to user-space.
  *
@@ -617,7 +620,8 @@ static void virtio_media_vma_close_locked(struct vm_area_struct *vma)
 
 	mutex_lock(&vv->bufs_lock);
 	cmd_munmap->hdr.cmd = VIRTIO_MEDIA_CMD_MUNMAP;
-	cmd_munmap->guest_addr = vma->vm_pgoff << PAGE_SHIFT;
+	cmd_munmap->offset =
+		(vma->vm_pgoff << PAGE_SHIFT) - vv->mmap_region.addr;
 	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(*resp_munmap),
 					NULL);
 	mutex_unlock(&vv->bufs_lock);
@@ -693,7 +697,8 @@ static int virtio_media_device_mmap(struct file *file,
 	 * Keep the guest address at which the buffer is mapped since we will
 	 * use that to unmap.
 	 */
-	vma->vm_pgoff = resp_mmap->addr >> PAGE_SHIFT;
+	vma->vm_pgoff = (resp_mmap->offset + vv->mmap_region.addr) >>
+			PAGE_SHIFT;
 
 	if (vma->vm_end - vma->vm_start > PAGE_ALIGN(resp_mmap->len)) {
 		virtio_media_vma_close_locked(vma);
@@ -701,8 +706,7 @@ static int virtio_media_device_mmap(struct file *file,
 		goto end;
 	}
 
-	ret = io_remap_pfn_range(vma, vma->vm_start,
-				 resp_mmap->addr >> PAGE_SHIFT,
+	ret = io_remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 				 vma->vm_end - vma->vm_start,
 				 vma->vm_page_prot);
 	if (ret)
@@ -772,6 +776,10 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	vv->commandq = vqs[0];
 	vv->eventq = vqs[1];
 	INIT_WORK(&vv->eventq_work, virtio_media_event_work);
+
+	/* Get MMAP buffer mapping SHM region */
+	virtio_get_shm_region(virtio_dev, &vv->mmap_region,
+			      VIRTIO_MEDIA_SHM_MMAP);
 
 	virtio_device_ready(virtio_dev);
 

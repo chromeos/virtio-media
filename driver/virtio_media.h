@@ -9,6 +9,7 @@
 #ifndef __VIRTIO_MEDIA_H
 #define __VIRTIO_MEDIA_H
 
+#include <linux/virtio_config.h>
 #include <media/v4l2-device.h>
 
 #include "protocol.h"
@@ -30,6 +31,9 @@ struct virtio_media {
 	struct virtqueue *commandq;
 	struct virtqueue *eventq;
 	struct work_struct eventq_work;
+
+	/* Region into which MMAP buffers are mapped by the host. */
+	struct virtio_shm_region mmap_region;
 
 	/* Buffer for event descriptors. */
 	void *event_buffer;

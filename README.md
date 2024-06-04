@@ -96,6 +96,12 @@ struct virtio_v4l2_config {
 }
 ```
 
+## Shared memory regions
+
+Shared memory region `0` is used to map `MMAP` buffers into the guest using the
+`VIRTIO_MEDIA_CMD_MMAP` command. If the host does not provide it, then `MMAP`
+buffers cannot be mapped into the guest.
+
 ## Protocol
 
 All structures managing the virtio protocol are defined and documented in

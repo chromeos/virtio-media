@@ -167,10 +167,10 @@ pub trait VirtioMediaGuestMemoryMapper {
 /// map `MMAP` buffers into the guest.
 pub trait VirtioMediaHostMemoryMapper {
     /// Maps `length` bytes of host memory starting at `offset` and backed by `buffer` into the
-    /// guest address space.
+    /// guest's shared memory region.
     ///
-    /// Returns the guest physical address of the start of the mapped memory on success, or a
-    /// `libc` error code in case of failure.
+    /// Returns the offset in the guest shared memory region of the start of the mapped memory on
+    /// success, or a `libc` error code in case of failure.
     fn add_mapping(
         &mut self,
         buffer: BorrowedFd,
@@ -179,8 +179,8 @@ pub trait VirtioMediaHostMemoryMapper {
         rw: bool,
     ) -> Result<u64, i32>;
 
-    /// Removes a guest mapping previously created at guest physical memory address `guest_addr`.
-    fn remove_mapping(&mut self, guest_addr: u64) -> Result<(), i32>;
+    /// Removes a guest mapping previously created at shared memory region offset `shm_offset`>
+    fn remove_mapping(&mut self, shm_offset: u64) -> Result<(), i32>;
 }
 
 /// No-op implementation of `VirtioMediaHostMemoryMapper`. Can be used for testing purposes or when
@@ -409,7 +409,7 @@ where
             VIRTIO_MEDIA_CMD_MUNMAP => reader
                 .read_obj()
                 .context("while reading UNMMAP command")
-                .and_then(|MunmapCmd { guest_addr }| {
+                .and_then(|MunmapCmd { offset: guest_addr }| {
                     match self.device.do_munmap(guest_addr) {
                         Ok(()) => writer.write_response(MunmapResp::ok()),
                         Err(e) => writer.write_err_response(e),
