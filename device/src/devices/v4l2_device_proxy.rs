@@ -328,8 +328,6 @@ struct V4l2MmapPlaneInfo {
     index: u8,
     /// Plane index.
     plane: u8,
-    /// Exported file descriptor, if a map into the guest has been requested.
-    exported_fd: Option<OwnedFd>,
     /// Guest address at which the buffer has been mapped.
     map_address: u64,
     /// Whether the buffer is still active from the device's point of view.
@@ -434,7 +432,6 @@ where
                             index: buffer.index() as u8,
                             plane: j as u8,
                             map_address: 0,
-                            exported_fd: None,
                             active: true,
                         },
                     );
@@ -1228,25 +1225,23 @@ where
         let plane_info = self.mmap_buffers.get_mut(&offset).ok_or(libc::EINVAL)?;
 
         // Export the FD for the plane and cache it if needed.
-        let exported_fd = match &mut plane_info.exported_fd {
-            Some(fd) => fd,
-            None => {
-                let fd = v4l2r::ioctl::expbuf::<OwnedFd>(
-                    &session.device,
-                    plane_info.queue,
-                    plane_info.index as usize,
-                    plane_info.plane as usize,
-                    if rw {
-                        ExpbufFlags::RDWR
-                    } else {
-                        ExpbufFlags::RDONLY
-                    },
-                )
-                .map_err(|e| e.into_errno())?;
-
-                plane_info.exported_fd.get_or_insert(fd)
-            }
-        };
+        //
+        // We must NOT cache this result to reuse in case of multiple MMAP requests. If we do, then
+        // there is the risk that a session requests a buffer belonging to another one. The call
+        // the `expbuf` also serves as a permission check that the requesting session indeed has
+        // access to the buffer.
+        let exported_fd = v4l2r::ioctl::expbuf::<OwnedFd>(
+            &session.device,
+            plane_info.queue,
+            plane_info.index as usize,
+            plane_info.plane as usize,
+            if rw {
+                ExpbufFlags::RDWR
+            } else {
+                ExpbufFlags::RDONLY
+            },
+        )
+        .map_err(|e| e.into_errno())?;
 
         let (mapping_addr, mapping_size) = self
             .mmap_manager
@@ -1259,24 +1254,10 @@ where
     }
 
     fn do_munmap(&mut self, guest_addr: u64) -> Result<(), i32> {
-        match self.mmap_manager.remove_mapping(guest_addr) {
-            Ok(has_mappings) => {
-                // Free the exported handle if this was the last mapping.
-                if !has_mappings {
-                    if let Some(entry) = self
-                        .mmap_buffers
-                        .iter_mut()
-                        .map(|(_, entry)| entry)
-                        .find(|entry| entry.map_address == guest_addr)
-                    {
-                        entry.exported_fd = None
-                    };
-                }
-
-                Ok(())
-            }
-            Err(_) => Err(libc::EINVAL),
-        }
+        self.mmap_manager
+            .remove_mapping(guest_addr)
+            .map(|_| ())
+            .map_err(|_| libc::EINVAL)
     }
 
     fn do_ioctl(
