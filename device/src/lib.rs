@@ -46,6 +46,7 @@
 
 pub mod devices;
 pub mod ioctl;
+pub mod memfd;
 pub mod mmap;
 pub mod poll;
 pub mod protocol;

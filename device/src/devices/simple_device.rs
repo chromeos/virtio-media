@@ -16,7 +16,6 @@ use std::io::Write;
 use std::os::fd::AsFd;
 use std::os::fd::BorrowedFd;
 
-use memfd::Memfd;
 use v4l2r::bindings;
 use v4l2r::bindings::v4l2_fmtdesc;
 use v4l2r::bindings::v4l2_format;
@@ -34,6 +33,7 @@ use v4l2r::QueueType;
 use crate::ioctl::virtio_media_dispatch_ioctl;
 use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
+use crate::memfd::MemFdBuffer;
 use crate::mmap::MmapMappingManager;
 use crate::protocol::DequeueBufferEvent;
 use crate::protocol::SgEntry;
@@ -66,7 +66,7 @@ struct Buffer {
     /// V4L2 representation of this buffer to be sent to the guest when requested.
     v4l2_buffer: V4l2Buffer,
     /// Backing storage for the buffer.
-    fd: Memfd,
+    fd: MemFdBuffer,
     /// Offset that can be used to map the buffer.
     ///
     /// Cached from `v4l2_buffer` to avoid doing a match.
@@ -414,14 +414,12 @@ where
 
         session.buffers = (0..count)
             .map(|i| {
-                memfd::MemfdOptions::default()
-                    .create(format!("simple device buffer {}", i))
-                    .map_err(|_| libc::ENOMEM)
+                MemFdBuffer::new(BUFFER_SIZE as u64)
+                    .map_err(|e| {
+                        log::error!("failed to allocate MMAP buffers: {:#}", e);
+                        libc::ENOMEM
+                    })
                     .and_then(|fd| {
-                        fd.as_file()
-                            .set_len(BUFFER_SIZE as u64)
-                            .map_err(|_| libc::ENOMEM)?;
-
                         let offset = self
                             .mmap_manager
                             .register_buffer(None, BUFFER_SIZE as u64)
