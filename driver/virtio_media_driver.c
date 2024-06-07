@@ -791,10 +791,10 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	vd->fops = &virtio_media_fops;
 	vd->device_caps = virtio_cread32(virtio_dev, 0);
 	if (vd->device_caps & (V4L2_CAP_VIDEO_M2M | V4L2_CAP_VIDEO_M2M_MPLANE))
-		vd->vfl_dir |= VFL_DIR_M2M;
+		vd->vfl_dir = VFL_DIR_M2M;
 	else if (vd->device_caps &
 		 (V4L2_CAP_VIDEO_OUTPUT | V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE))
-		vd->vfl_dir |= VFL_DIR_TX;
+		vd->vfl_dir = VFL_DIR_TX;
 	else
 		vd->vfl_dir = VFL_DIR_RX;
 	vd->release = video_device_release_empty;
