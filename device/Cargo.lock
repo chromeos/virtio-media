@@ -143,6 +143,7 @@ dependencies = [
  "enumn",
  "libc",
  "log",
+ "nix",
  "thiserror",
  "v4l2r",
  "zerocopy",

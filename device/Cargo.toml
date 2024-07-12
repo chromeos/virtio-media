@@ -12,6 +12,7 @@ anyhow = "1.0.32"
 enumn = "0.1.12"
 log = "0.4.20"
 libc = "0.2.151"
+nix = { version = "0.28", features = ["fs"] }
 thiserror = "1.0.38"
 zerocopy = { version = "0.7.31", features = ["derive"] }
 v4l2r = { git = "https://github.com/Gnurou/v4l2r", rev = "00cce08" }

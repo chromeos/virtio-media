@@ -11,9 +11,11 @@ use std::io;
 use std::os::fd::AsFd;
 use std::os::fd::AsRawFd;
 use std::os::fd::BorrowedFd;
-use std::os::fd::FromRawFd;
 use std::os::fd::RawFd;
 
+use nix::errno::Errno;
+use nix::sys::memfd::memfd_create;
+use nix::sys::memfd::MemFdCreateFlag;
 use thiserror::Error;
 
 /// A chunk of memory allocated through `memfd`.
@@ -26,7 +28,7 @@ pub struct MemFdBuffer {
 #[derive(Debug, Error)]
 pub enum NewMemFdBufferError {
     #[error("call to memfd_create failed: {0}")]
-    FailedToCreate(io::Error),
+    FailedToCreate(#[from] Errno),
     #[error("failed to set size of memfd: {0}")]
     FailedToSetSize(io::Error),
     #[error("failed to seal memfd: {0}")]
@@ -36,18 +38,9 @@ pub enum NewMemFdBufferError {
 impl MemFdBuffer {
     pub fn new(size: u64) -> Result<Self, NewMemFdBufferError> {
         // Dummy name, we may want to support names for debugging purposes.
-        let name = b"\0";
-        // SAFETY: name is a zero-terminated string.
-        let res = unsafe { libc::memfd_create(name.as_ptr() as *const _, libc::MFD_ALLOW_SEALING) };
+        let fd = memfd_create(c"", MemFdCreateFlag::MFD_ALLOW_SEALING)?;
 
-        if res < 0 {
-            return Err(NewMemFdBufferError::FailedToCreate(
-                io::Error::last_os_error(),
-            ));
-        }
-
-        // SAFETY: `res` has been checked to be a valid FD.
-        let file = unsafe { File::from_raw_fd(res) };
+        let file: File = fd.into();
 
         // Allocate requested size.
         file.set_len(size)
