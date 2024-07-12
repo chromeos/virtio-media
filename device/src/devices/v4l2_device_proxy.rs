@@ -75,7 +75,9 @@ use v4l2r::ioctl::TunerType;
 use v4l2r::ioctl::V4l2Buffer;
 use v4l2r::ioctl::V4l2PlanesWithBacking;
 use v4l2r::ioctl::V4l2PlanesWithBackingMut;
+use v4l2r::memory::Memory;
 use v4l2r::memory::MemoryType;
+use v4l2r::memory::UserPtr;
 use v4l2r::QueueType;
 
 use crate::ioctl::virtio_media_dispatch_ioctl;
@@ -94,6 +96,8 @@ use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaGuestMemoryMapper;
 use crate::VirtioMediaHostMemoryMapper;
 
+type GuestAddrType = <UserPtr as Memory>::RawBacking;
+
 fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
     guest_buffer: &V4l2Buffer,
     guest_regions: Vec<Vec<SgEntry>>,
@@ -111,7 +115,7 @@ fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
         {
             let mut mapping = m.new_mapping(mem_regions)?;
 
-            host_plane.set_userptr(mapping.as_mut().as_ptr() as u64);
+            host_plane.set_userptr(mapping.as_mut().as_ptr() as GuestAddrType);
             resources.push(mapping);
         }
     };
@@ -124,7 +128,7 @@ fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
 /// guest with the correct values.
 fn host_v4l2_buffer_to_guest<R>(
     host_buffer: &V4l2Buffer,
-    userptr_buffers: &BTreeMap<u64, V4l2UserPlaneInfo<R>>,
+    userptr_buffers: &BTreeMap<GuestAddrType, V4l2UserPlaneInfo<R>>,
 ) -> anyhow::Result<V4l2Buffer> {
     // The guest buffer is a copy of the host's with its plane resources updated.
     let mut guest_buffer = host_buffer.clone();
@@ -135,12 +139,12 @@ fn host_v4l2_buffer_to_guest<R>(
         for mut plane in host_planes.filter(|p| p.userptr() != 0) {
             let host_userptr = plane.userptr();
             let guest_userptr = userptr_buffers
-                .get(&host_userptr)
+                .get(&(host_userptr as GuestAddrType))
                 .map(|p| p.guest_addr)
                 .ok_or_else(|| {
                     anyhow::anyhow!("host buffer address 0x{:x} not registered!", host_userptr)
                 })?;
-            plane.set_userptr(guest_userptr);
+            plane.set_userptr(guest_userptr as GuestAddrType);
         }
     }
 
@@ -218,7 +222,7 @@ struct V4l2UserPlaneInfo<R> {
     /// Buffer index.
     index: u8,
 
-    guest_addr: u64,
+    guest_addr: GuestAddrType,
     _guest_resource: R,
 }
 
@@ -246,7 +250,7 @@ pub struct V4l2Session<M: VirtioMediaGuestMemoryMapper> {
     ///
     /// TODO this is not properly cleared. We should probably record the session ID and queue in
     /// order to remove the records upon REQBUFS or session deletion?
-    userptr_buffers: BTreeMap<u64, V4l2UserPlaneInfo<M::GuestMemoryMapping>>,
+    userptr_buffers: BTreeMap<GuestAddrType, V4l2UserPlaneInfo<M::GuestMemoryMapping>>,
 }
 
 impl<M: VirtioMediaGuestMemoryMapper> VirtioMediaDeviceSession for V4l2Session<M> {

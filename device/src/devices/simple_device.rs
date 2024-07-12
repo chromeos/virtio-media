@@ -90,8 +90,8 @@ impl Buffer {
                 *self.v4l2_buffer.get_first_plane_mut().bytesused = BUFFER_SIZE;
                 self.v4l2_buffer.set_sequence(sequence);
                 self.v4l2_buffer.set_timestamp(bindings::timeval {
-                    tv_sec: (sequence + 1) as i64 / 1000,
-                    tv_usec: (sequence + 1) as i64 % 1000,
+                    tv_sec: (sequence + 1) as bindings::__time_t / 1000,
+                    tv_usec: (sequence + 1) as bindings::__time_t % 1000,
                 });
                 flags -= BufferFlags::QUEUED;
             }
