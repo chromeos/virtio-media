@@ -115,6 +115,8 @@ pub enum VideoDecoderBackendEvent {
 pub struct StreamParams {
     /// Minimum number of output buffers necessary to decode the stream.
     pub min_output_buffers: u32,
+    /// Coded size of the stream.
+    pub coded_size: (u32, u32),
     /// Visible rectangle containing the part of the frame to display.
     pub visible_rect: v4l2r::Rect,
 }
