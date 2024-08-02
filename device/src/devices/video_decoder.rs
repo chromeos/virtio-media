@@ -173,6 +173,19 @@ pub trait VideoDecoderBackendSession {
     fn poll_fd(&self) -> Option<BorrowedFd> {
         None
     }
+
+    /// Optional hook called whenever the streaming state of a queue changes. Some backends may
+    /// need this information to operate properly.
+    fn streaming_state(&mut self, _direction: QueueDirection, _streaming: bool) {}
+
+    /// Optional hook called by the decoder to signal it has processed a pausing event
+    /// sent by the backend.
+    ///
+    /// Pausing event are currently limited to [`VideoDecoderBackendEvent::StreamFormatChanged`].
+    /// Whenever the resolution changes, the backend must stop processing until the decoder has
+    /// adapted its conditions for decoding to resume (e.g. CAPTURE buffers of the proper size and
+    /// format have been allocated).
+    fn resume(&mut self) {}
 }
 
 /// State of a session.
@@ -821,6 +834,7 @@ where
                     VideoDecoderBuffer::new(
                         queue,
                         i as u32,
+                        // TODO: only single-planar formats supported.
                         &[sizeimage as usize],
                         mmap_offset as u32,
                     )
@@ -930,6 +944,10 @@ where
             QueueDirection::Capture => session.state.output_streamon(),
         }
 
+        session
+            .backend_session
+            .streaming_state(queue.direction(), true);
+
         if !already_running && matches!(session.state, VideoDecoderStreamingState::Running) {
             // TODO: start queueing pending buffers?
         }
@@ -959,6 +977,10 @@ where
         for buffer in buffers {
             buffer.v4l2_buffer.clear_flags(BufferFlags::QUEUED);
         }
+
+        session
+            .backend_session
+            .streaming_state(queue.direction(), false);
 
         Ok(())
     }
@@ -1116,7 +1138,10 @@ where
                 } = &session.state
                 {
                     if *input_streaming && *output_streaming {
-                        session.state = VideoDecoderStreamingState::Running
+                        session.state = VideoDecoderStreamingState::Running;
+                        session
+                            .backend_session
+                            .streaming_state(QueueDirection::Capture, true);
                     }
                     session.try_send_pending_output_buffers();
                 }
