@@ -94,6 +94,7 @@ impl<S: VideoDecoderBufferBacking> VideoDecoderBuffer<S> {
 }
 
 /// Events reported by the [`VideoDecoderBackendSession::next_event`] method.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VideoDecoderBackendEvent {
     /// Sent whenever the format of the stream has changed. The new format can be read using
     /// [`VideoDecoderBackendSession::current_format`].
@@ -110,6 +111,7 @@ pub enum VideoDecoderBackendEvent {
 }
 
 /// Description of the current stream parameters, as parsed from the input.
+#[derive(Clone)]
 pub struct StreamParams {
     /// Minimum number of output buffers necessary to decode the stream.
     pub min_output_buffers: u32,
