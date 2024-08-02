@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+use std::ops::Deref;
 use std::os::fd::BorrowedFd;
 
 use v4l2r::bindings;
@@ -275,6 +276,35 @@ impl VideoDecoderStreamingState {
     }
 }
 
+/// Management of the crop rectangle.
+///
+/// There are two ways this parameter can be set:
+///
+/// * Manually by the client, by calling `VIDIOC_S_SELECTION` with `V4L2_SEL_TGT_COMPOSE`. This has
+/// an effect only before the first resolution change event is emitted, and is the only way to
+/// properly set the crop rectangle for codecs/hardware that don't support DRC detection.
+///
+/// * From the information contained in the stream, signaled via a
+/// [`VideoDecoderBackendEvent::StreamFormatChanged`] event. Once this event has been emitted, the
+/// crop rectangle is fixed and determined by the stream.
+enum CropRectangle {
+    /// Crop rectangle has not been determined from the stream yet and can be set by the client.
+    Settable(v4l2r::Rect),
+    /// Crop rectangle has been determined from the stream and cannot be modified.
+    FromStream(v4l2r::Rect),
+}
+
+impl Deref for CropRectangle {
+    type Target = v4l2r::Rect;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            CropRectangle::Settable(r) => r,
+            CropRectangle::FromStream(r) => r,
+        }
+    }
+}
+
 pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
     id: u32,
 
@@ -294,6 +324,8 @@ pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
     /// Whether the EOS event has been subscribed to by the driver. If `true` then the device will
     /// emit EOS events.
     eos_subscribed: bool,
+
+    crop_rectangle: CropRectangle,
 
     /// Adapter-specific data.
     backend_session: S,
@@ -468,6 +500,7 @@ where
             sequence_cpt: 0,
             src_change_subscribed: false,
             eos_subscribed: false,
+            crop_rectangle: CropRectangle::Settable(v4l2r::Rect::new(0, 0, 0, 0)),
         })
     }
 
@@ -565,6 +598,11 @@ where
                         )));
                 }
                 VideoDecoderBackendEvent::StreamFormatChanged => {
+                    let stream_params = session.backend_session.stream_params();
+
+                    // The crop rectangle is now determined by the stream and cannot be changed.
+                    session.crop_rectangle = CropRectangle::FromStream(stream_params.visible_rect);
+
                     if session.src_change_subscribed {
                         self.event_queue
                             .send_event(V4l2Event::Event(SessionEvent::new(
@@ -721,6 +759,12 @@ where
 
         self.backend
             .apply_format(&mut session.backend_session, queue.direction(), &format);
+
+        // If the crop rectangle is still settable, adjust it to the size of the new format.
+        if let CropRectangle::Settable(rect) = &mut session.crop_rectangle {
+            let (width, height) = format.size();
+            *rect = v4l2r::Rect::new(0, 0, width, height);
+        }
 
         let v4l2_format: &bindings::v4l2_format = format.as_ref();
         Ok(*v4l2_format)
@@ -925,7 +969,7 @@ where
         _sel_type: v4l2r::ioctl::SelectionType,
         _sel_target: v4l2r::ioctl::SelectionTarget,
     ) -> IoctlResult<bindings::v4l2_rect> {
-        Ok(session.backend_session.stream_params().visible_rect.into())
+        Ok((*session.crop_rectangle).into())
     }
 
     fn s_selection(
@@ -933,9 +977,28 @@ where
         session: &mut Self::Session,
         sel_type: v4l2r::ioctl::SelectionType,
         sel_target: v4l2r::ioctl::SelectionTarget,
-        _sel_rect: bindings::v4l2_rect,
+        mut sel_rect: bindings::v4l2_rect,
         _sel_flags: v4l2r::ioctl::SelectionFlags,
     ) -> IoctlResult<bindings::v4l2_rect> {
+        if !matches!(sel_target, v4l2r::ioctl::SelectionTarget::Compose) {
+            return Err(libc::EINVAL);
+        }
+
+        // If the crop rectangle is still settable, allow its modification within the bounds of the
+        // coded resolution.
+        if let CropRectangle::Settable(rect) = &mut session.crop_rectangle {
+            let coded_size = session
+                .backend_session
+                .current_format(QueueDirection::Capture)
+                .size();
+            sel_rect.left = std::cmp::max(0, sel_rect.left);
+            sel_rect.top = std::cmp::max(0, sel_rect.top);
+            sel_rect.width = std::cmp::min(coded_size.0, sel_rect.width - sel_rect.left as u32);
+            sel_rect.height = std::cmp::min(coded_size.0, sel_rect.height - sel_rect.top as u32);
+
+            *rect = sel_rect.into();
+        }
+
         self.g_selection(session, sel_type, sel_target)
     }
 
