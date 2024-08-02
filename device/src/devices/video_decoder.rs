@@ -113,7 +113,7 @@ pub enum VideoDecoderBackendEvent {
     FrameCompleted {
         buffer_id: u32,
         timestamp: bindings::timeval,
-        bytes_used: u32,
+        bytes_used: Vec<u32>,
         is_last: bool,
     },
 }
@@ -610,7 +610,7 @@ where
                     session.sequence_cpt += 1;
                     buffer.v4l2_buffer.set_timestamp(timestamp);
                     let first_plane = buffer.v4l2_buffer.get_first_plane_mut();
-                    *first_plane.bytesused = bytes_used;
+                    *first_plane.bytesused = bytes_used.first().copied().unwrap_or(0);
                     self.event_queue
                         .send_event(V4l2Event::DequeueBuffer(DequeueBufferEvent::new(
                             session.id,
