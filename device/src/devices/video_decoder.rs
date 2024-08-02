@@ -91,15 +91,6 @@ impl<S: VideoDecoderBufferBacking> VideoDecoderBuffer<S> {
     pub fn timestamp(&self) -> bindings::timeval {
         self.v4l2_buffer.timestamp()
     }
-
-    pub fn bytes_used(&self) -> u32 {
-        let first_plane = self.v4l2_buffer.get_first_plane();
-        if *first_plane.bytesused == 0 {
-            *first_plane.length
-        } else {
-            *first_plane.bytesused
-        }
-    }
 }
 
 /// Events reported by the [`VideoDecoderBackendSession::next_event`] method.
@@ -974,11 +965,22 @@ where
                     *data_offset = first_plane.data_offset.copied().unwrap_or(0);
                 }
 
+                let bytes_used = {
+                    let first_plane = host_buffer.v4l2_buffer.get_first_plane();
+                    // V4L2's spec mentions that if `bytes_used == 0` then the whole buffer is considered to be
+                    // used.
+                    if *first_plane.bytesused == 0 {
+                        *first_plane.length
+                    } else {
+                        *first_plane.bytesused
+                    }
+                };
+
                 session.backend_session.decode(
                     &host_buffer.backing,
                     host_buffer.index(),
                     host_buffer.timestamp(),
-                    host_buffer.bytes_used(),
+                    bytes_used,
                 )?;
 
                 host_buffer.v4l2_buffer.add_flags(BufferFlags::QUEUED);
