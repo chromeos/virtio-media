@@ -7,6 +7,7 @@
  */
 
 #include <linux/virtio_config.h>
+#include <linux/vmalloc.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 

@@ -13,6 +13,7 @@
 #include <linux/scatterlist.h>
 #include <linux/types.h>
 #include <linux/videodev2.h>
+#include <linux/vmalloc.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
 #include <media/frame_vector.h>
