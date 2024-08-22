@@ -90,6 +90,7 @@ use crate::protocol::SgEntry;
 use crate::protocol::V4l2Event;
 use crate::protocol::V4l2Ioctl;
 use crate::protocol::VIRTIO_MEDIA_MMAP_FLAG_RW;
+use crate::GuestMemoryRange;
 use crate::VirtioMediaDevice;
 use crate::VirtioMediaDeviceSession;
 use crate::VirtioMediaEventQueue;
@@ -113,9 +114,9 @@ fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
         for (mut host_plane, mem_regions) in
             host_planes.filter(|p| *p.length > 0).zip(guest_regions)
         {
-            let mut mapping = m.new_mapping(mem_regions)?;
+            let mapping = m.new_mapping(mem_regions)?;
 
-            host_plane.set_userptr(mapping.as_mut().as_ptr() as GuestAddrType);
+            host_plane.set_userptr(mapping.as_ptr() as GuestAddrType);
             resources.push(mapping);
         }
     };
@@ -190,7 +191,7 @@ fn perform_ext_ctrls_ioctl<M: VirtioMediaGuestMemoryMapper>(
         .filter(|ctrl| ctrl.size > 0)
         .zip(payloads.iter_mut())
     {
-        ctrl.__bindgen_anon_1.ptr = payload.as_mut().as_mut_ptr() as *mut libc::c_void;
+        ctrl.__bindgen_anon_1.ptr = payload.as_mut_ptr() as *mut libc::c_void;
     }
 
     let res = match ioctl {

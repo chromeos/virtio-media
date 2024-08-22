@@ -141,6 +141,13 @@ pub trait VirtioMediaEventQueue {
     }
 }
 
+/// Trait for representing a range of guest memory that has been mapped linearly into the host's
+/// address space.
+pub trait GuestMemoryRange {
+    fn as_ptr(&self) -> *const u8;
+    fn as_mut_ptr(&mut self) -> *mut u8;
+}
+
 /// Trait enabling guest memory linear access for the device.
 ///
 /// Although the host can access the guest memory, it sometimes need to have a linear view of
@@ -151,7 +158,7 @@ pub trait VirtioMediaEventQueue {
 /// implementations might e.g. write back into the guest memory at destruction time.
 pub trait VirtioMediaGuestMemoryMapper {
     /// Host-side linear mapping of sparse guest memory.
-    type GuestMemoryMapping: AsRef<[u8]> + AsMut<[u8]>;
+    type GuestMemoryMapping: GuestMemoryRange;
 
     /// Maps `sgs`, which contains a list of guest-physical SG entries into a linear mapping on the
     /// host.
