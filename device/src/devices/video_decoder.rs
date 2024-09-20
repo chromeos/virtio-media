@@ -11,6 +11,8 @@ use v4l2r::ioctl::BufferField;
 use v4l2r::ioctl::BufferFlags;
 use v4l2r::ioctl::DecoderCmd;
 use v4l2r::ioctl::EventType;
+use v4l2r::ioctl::SelectionTarget;
+use v4l2r::ioctl::SelectionType;
 use v4l2r::ioctl::SrcChanges;
 use v4l2r::ioctl::V4l2Buffer;
 use v4l2r::ioctl::V4l2MplaneFormat;
@@ -991,21 +993,43 @@ where
     fn g_selection(
         &mut self,
         session: &Self::Session,
-        _sel_type: v4l2r::ioctl::SelectionType,
-        _sel_target: v4l2r::ioctl::SelectionTarget,
+        sel_type: SelectionType,
+        sel_target: SelectionTarget,
     ) -> IoctlResult<bindings::v4l2_rect> {
-        Ok((*session.crop_rectangle).into())
+        match (sel_type, sel_target) {
+            // Coded resolution of the stream.
+            (SelectionType::Capture, SelectionTarget::CropBounds) => {
+                let coded_size = session.backend_session.stream_params().coded_size;
+                Ok(v4l2r::Rect::new(0, 0, coded_size.0, coded_size.1).into())
+            }
+            // Visible area of CAPTURE buffers.
+            (
+                SelectionType::Capture,
+                SelectionTarget::Crop
+                | SelectionTarget::CropDefault
+                | SelectionTarget::ComposeDefault
+                | SelectionTarget::ComposeBounds
+                | SelectionTarget::Compose,
+            ) => {
+                //Ok(session.backend_session.stream_params().visible_rect.into())
+                Ok((*session.crop_rectangle).into())
+            }
+            _ => Err(libc::EINVAL),
+        }
     }
 
     fn s_selection(
         &mut self,
         session: &mut Self::Session,
-        sel_type: v4l2r::ioctl::SelectionType,
-        sel_target: v4l2r::ioctl::SelectionTarget,
+        sel_type: SelectionType,
+        sel_target: SelectionTarget,
         mut sel_rect: bindings::v4l2_rect,
         _sel_flags: v4l2r::ioctl::SelectionFlags,
     ) -> IoctlResult<bindings::v4l2_rect> {
-        if !matches!(sel_target, v4l2r::ioctl::SelectionTarget::Compose) {
+        if !matches!(
+            (sel_type, sel_target),
+            (SelectionType::Capture, SelectionTarget::Compose)
+        ) {
             return Err(libc::EINVAL);
         }
 
