@@ -1,0 +1,17 @@
+[package]
+name = "virtio-media-ffmpeg-decoder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+enumn = "0.1.12"
+libc = "0.2.155"
+thiserror = "1.0"
+anyhow = "1.0"
+log = "0.4.20"
+nix = { version = "0.28", features = ["fs", "mman"] }
+virtio-media = { path = "../../device" }
+
+[build-dependencies]
+bindgen = "0.63"
+pkg-config = "0.3"

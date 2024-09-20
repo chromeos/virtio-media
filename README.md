@@ -64,6 +64,9 @@ Implemented devices are:
 - A proxy device for host V4L2 devices, i.e. a device allowing to expose a host
   V4L2 device to the guest almost as-is (`v4l2_device_proxy.rs`).
 
+* A FFmpeg-based video decoder device as a separate crate in
+  `extras/ffmpeg-decoder`.
+
 ## Virtio device ID
 
 This device does not have an official ID assigned, so users are free to use
