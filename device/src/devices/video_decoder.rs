@@ -799,7 +799,10 @@ where
             QueueType::VideoOutputMplane => (&mut session.input_buffers, count),
             QueueType::VideoCaptureMplane => (
                 &mut session.output_buffers,
-                count.max(session.backend_session.stream_params().min_output_buffers),
+                // TODO: no no, we need to reallocate all the buffers if the queue parameters have
+                // changed... especially if the new format won't fit into the old buffers!
+                // count.max(session.backend_session.stream_params().min_output_buffers),
+                count,
             ),
             _ => return Err(libc::EINVAL),
         };
