@@ -14,13 +14,14 @@
 //! # Traits to implement by the VMM
 //!
 //! * Descriptor chains must implement `Read` and `Write` on their device-readable and
-//! device-writable parts, respectively. This allows devices to read commands and writes responses.
+//!   device-writable parts, respectively. This allows devices to read commands and writes
+//!   responses.
 //! * The event queue must implement the `VirtioMediaEventQueue` trait to allow devices to send
-//! events to the guest.
+//!   events to the guest.
 //! * The guest memory must be made accessible through an implementation of
-//! `VirtioMediaGuestMemoryMapper`.
+//!   `VirtioMediaGuestMemoryMapper`.
 //! * Optionally, .... can be implemented if the host supports mapping MMAP buffers into the guest
-//! address space.
+//!   address space.
 //!
 //! These traits allow any device that implements `VirtioMediaDevice` to run on any VMM that
 //! implements them.
@@ -42,7 +43,7 @@
 //! The devices currently in this crate are:
 //!
 //! * A device that proxies any host V4L2 device into the guest, in the `crate::v4l2_device_proxy`
-//! module.
+//!   module.
 
 pub mod devices;
 pub mod ioctl;
@@ -187,7 +188,7 @@ pub trait VirtioMediaHostMemoryMapper {
         rw: bool,
     ) -> Result<u64, i32>;
 
-    /// Removes a guest mapping previously created at shared memory region offset `shm_offset`>
+    /// Removes a guest mapping previously created at shared memory region offset `shm_offset`.
     fn remove_mapping(&mut self, shm_offset: u64) -> Result<(), i32>;
 }
 
