@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0"
 enumn = "0.1.12"
 libc = "0.2.155"
-thiserror = "1.0"
-anyhow = "1.0"
 log = "0.4.20"
 nix = { version = "0.28", features = ["fs", "mman"] }
+thiserror = "1.0"
 virtio-media = { path = "../../device" }
 
 [build-dependencies]
