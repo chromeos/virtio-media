@@ -869,5 +869,5 @@ module_virtio_driver(virtio_media_driver);
 
 MODULE_DEVICE_TABLE(virtio, id_table);
 MODULE_DESCRIPTION("virtio media driver");
-MODULE_AUTHOR("Alexandre Courbot <acourbot@chromium.org>");
+MODULE_AUTHOR("Alexandre Courbot <acourbot@google.com>");
 MODULE_LICENSE("Dual BSD/GPL");
