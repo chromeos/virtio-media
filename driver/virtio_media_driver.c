@@ -733,11 +733,24 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 {
 	struct device *dev = &virtio_dev->dev;
 	struct virtqueue *vqs[2];
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+	static struct virtqueue_info vq_info[2] = {
+		{
+			.name = "command",
+			.callback = commandq_callback,
+		},
+		{
+			.name = "event",
+			.callback = eventq_callback,
+		},
+	};
+#else
 	static vq_callback_t *vq_callbacks[] = {
 		commandq_callback,
 		eventq_callback,
 	};
 	static const char *const vq_names[] = { "command", "event" };
+#endif
 	struct virtio_media *vv;
 	struct video_device *vd;
 	int i;
@@ -770,7 +783,11 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	if (ret)
 		return ret;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+	ret = virtio_find_vqs(virtio_dev, 2, vqs, vq_info, NULL);
+#else
 	ret = virtio_find_vqs(virtio_dev, 2, vqs, vq_callbacks, vq_names, NULL);
+#endif
 	if (ret)
 		goto err_find_vqs;
 
