@@ -10,12 +10,12 @@
 //! The conditions for using these devices are as follows:
 //!
 //! * [`std::io::Read`] and [`std::io::Write`] implementations for the device-readable and
-//! device-writable sections of the descriptor chain,
+//!   device-writable sections of the descriptor chain,
 //! * An implementation of [`crate::VirtioMediaEventQueue`], so devices can send events to the guest,
 //! * For devices that need to access guest memory linearly, an implementation of
-//! [`crate::VirtioMediaGuestMemoryMapper`].
+//!   [`crate::VirtioMediaGuestMemoryMapper`].
 //! * For devices that need to map host memory into the guest, an implementation of
-//! [`crate::VirtioMediaHostMemoryMapper`].
+//!   [`crate::VirtioMediaHostMemoryMapper`].
 //!
 //! [simple_device] implements a simple capture device that generates frames in software. It can be
 //! used as a reference for how to write devices, or as a way to test the guest without any

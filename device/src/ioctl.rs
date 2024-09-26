@@ -776,9 +776,9 @@ impl ToDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>) {
 /// * `Writer` is the writer to the device-writable part of the descriptor chain,
 /// * `I` is the data to be read from the descriptor chain,
 /// * `O` is the type of response to be written to the descriptor chain for both success and
-/// failure,
+///   failure,
 /// * `X` processes the input and produces a result. In case of failure, an error code and optional
-/// payload to write along with it are returned.
+///   payload to write along with it are returned.
 fn wr_ioctl_with_err_payload<Reader, Writer, I, O, X>(
     ioctl: V4l2Ioctl,
     reader: &mut Reader,
@@ -820,7 +820,7 @@ where
 /// * `I` is the data to be read from the descriptor chain,
 /// * `O` is the type of response to be written to the descriptor chain in case of success,
 /// * `X` processes the input and produces a result. In case of failure, an error code to transmit
-/// to the guest is returned.
+///   to the guest is returned.
 fn wr_ioctl<Reader, Writer, I, O, X>(
     ioctl: V4l2Ioctl,
     reader: &mut Reader,
@@ -844,7 +844,7 @@ where
 /// * `Reader` is the reader to the device-readable part of the descriptor chain,
 /// * `I` is the data to be read from the descriptor chain,
 /// * `X` processes the input. In case of failure, an error code to transmit to the guest is
-/// returned.
+///   returned.
 fn w_ioctl<Reader, Writer, I, X>(
     ioctl: V4l2Ioctl,
     reader: &mut Reader,
@@ -865,7 +865,7 @@ where
 /// * `Writer` is the writer to the device-writable part of the descriptor chain,
 /// * `O` is the type of response to be written to the descriptor chain in case of success,
 /// * `X` runs the ioctl and produces a result. In case of failure, an error code to transmit to
-/// the guest is returned.
+///   the guest is returned.
 fn r_ioctl<Writer, O, X>(ioctl: V4l2Ioctl, writer: &mut Writer, process: X) -> IoResult<()>
 where
     Writer: std::io::Write,

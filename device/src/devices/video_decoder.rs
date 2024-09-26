@@ -296,12 +296,12 @@ impl VideoDecoderStreamingState {
 /// There are two ways this parameter can be set:
 ///
 /// * Manually by the client, by calling `VIDIOC_S_SELECTION` with `V4L2_SEL_TGT_COMPOSE`. This has
-/// an effect only before the first resolution change event is emitted, and is the only way to
-/// properly set the crop rectangle for codecs/hardware that don't support DRC detection.
+///   an effect only before the first resolution change event is emitted, and is the only way to
+///   properly set the crop rectangle for codecs/hardware that don't support DRC detection.
 ///
 /// * From the information contained in the stream, signaled via a
-/// [`VideoDecoderBackendEvent::StreamFormatChanged`] event. Once this event has been emitted, the
-/// crop rectangle is fixed and determined by the stream.
+///   [`VideoDecoderBackendEvent::StreamFormatChanged`] event. Once this event has been emitted, the
+///   crop rectangle is fixed and determined by the stream.
 enum CropRectangle {
     /// Crop rectangle has not been determined from the stream yet and can be set by the client.
     Settable(v4l2r::Rect),
