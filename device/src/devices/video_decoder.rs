@@ -1070,7 +1070,7 @@ where
             QueueDirection::Output => {
                 // Update buffer state
                 let v4l2_buffer = &mut host_buffer.v4l2_buffer;
-                v4l2_buffer.set_field(buffer.field());
+                v4l2_buffer.set_field(BufferField::None);
                 v4l2_buffer.set_timestamp(buffer.timestamp());
                 let first_plane = buffer.get_first_plane();
                 *v4l2_buffer.get_first_plane_mut().bytesused = *first_plane.bytesused;
