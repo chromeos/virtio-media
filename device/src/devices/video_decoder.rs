@@ -1153,6 +1153,11 @@ where
             .get_mut(buffer.index() as usize)
             .ok_or(libc::EINVAL)?;
 
+        // Check that the buffer's memory type corresponds to the one requested during allocation.
+        if buffer.memory() != host_buffer.v4l2_buffer.memory() {
+            return Err(libc::EINVAL);
+        }
+
         match buffer.queue().direction() {
             QueueDirection::Output => {
                 // Update buffer state
