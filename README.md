@@ -69,8 +69,7 @@ Implemented devices are:
 
 ## Virtio device ID
 
-This device does not have an official ID assigned, so users are free to use
-whatever works for them. By default, ID `0x3b` is used in the driver.
+Virtio-media uses device ID `49`.
 
 ## Virtqueues
 

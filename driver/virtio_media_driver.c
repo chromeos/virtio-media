@@ -36,8 +36,9 @@
 
 #define VIRTIO_MEDIA_NUM_EVENT_BUFS 16
 
-/* High-enough number to not conflict with the official virtio device numbers */
-#define VIRTIO_ID_MEDIA 0x3b
+#ifndef VIRTIO_ID_MEDIA
+#define VIRTIO_ID_MEDIA 49
+#endif
 
 /* ID of the SHM region into which MMAP buffer will be mapped. */
 #define VIRTIO_MEDIA_SHM_MMAP 0
