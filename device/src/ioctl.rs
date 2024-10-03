@@ -61,9 +61,9 @@ use crate::protocol::RespHeader;
 use crate::protocol::SgEntry;
 use crate::protocol::V4l2Ioctl;
 use crate::FromDescriptorChain;
-use crate::ReadDescriptorChain;
+use crate::ReadFromDescriptorChain;
 use crate::ToDescriptorChain;
-use crate::WriteDescriptorChain;
+use crate::WriteToDescriptorChain;
 
 /// Module allowing select V4L2 structures from implementing zerocopy and implementations of
 /// [`FromDescriptorChain`] and [`ToDescriptorChain`] for them.
@@ -74,7 +74,7 @@ mod v4l2_zerocopy {
     use zerocopy::FromZeroes;
 
     use crate::FromDescriptorChain;
-    use crate::ReadDescriptorChain;
+    use crate::ReadFromDescriptorChain;
     use crate::ToDescriptorChain;
 
     /// Wrapper allowing any structure to be read/written using zerocopy. This obviously should be

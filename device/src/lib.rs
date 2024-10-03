@@ -66,60 +66,6 @@ use zerocopy::FromBytes;
 
 use protocol::*;
 
-/// Extension trait for reading objects from the device-readable section of a descriptor chain.
-pub trait ReadDescriptorChain {
-    fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T>;
-}
-
-/// Any implementor of `Read` can be used to read virtio-media commands.
-impl<R> ReadDescriptorChain for R
-where
-    R: std::io::Read,
-{
-    fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T> {
-        // We use `zeroed` instead of `uninit` because `read_exact` cannot be called with
-        // uninitialized memory. Since `T` implements `FromBytes`, its zeroed form is valid and
-        // initialized.
-        let mut obj = std::mem::MaybeUninit::zeroed();
-        // Safe because the slice boundaries cover `obj`, and the slice doesn't outlive it.
-        let slice = unsafe {
-            std::slice::from_raw_parts_mut(obj.as_mut_ptr() as *mut u8, std::mem::size_of::<T>())
-        };
-
-        self.read_exact(slice)?;
-
-        // Safe because obj can be initialized from an array of bytes.
-        Ok(unsafe { obj.assume_init() })
-    }
-}
-
-/// Extension trait for writing objects and responses into the device-writable section of a
-/// descriptor chain.
-pub trait WriteDescriptorChain {
-    /// Write an arbitrary object to the guest.
-    fn write_obj<T: AsBytes>(&mut self, obj: &T) -> IoResult<()>;
-
-    /// Write a command response to the guest.
-    fn write_response<T: AsBytes>(&mut self, response: T) -> IoResult<()> {
-        self.write_obj(&response)
-    }
-
-    /// Send `code` as the error code of an error response.
-    fn write_err_response(&mut self, code: libc::c_int) -> IoResult<()> {
-        self.write_response(RespHeader::err(code))
-    }
-}
-
-/// Any implementor of `Write` can be used to write virtio-media responses.
-impl<W> WriteDescriptorChain for W
-where
-    W: std::io::Write,
-{
-    fn write_obj<T: AsBytes>(&mut self, obj: &T) -> IoResult<()> {
-        self.write_all(obj.as_bytes())
-    }
-}
-
 /// Trait for reading objects from a reader, e.g. the device-readable section of a descriptor
 /// chain.
 pub trait FromDescriptorChain {
@@ -306,6 +252,61 @@ where
             sessions: Default::default(),
             session_id_counter: 0,
         }
+    }
+}
+
+/// Crate-local extension trait for reading objects from the device-readable section of a
+/// descriptor chain.
+trait ReadFromDescriptorChain {
+    fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T>;
+}
+
+/// Any implementor of `Read` can be used to read virtio-media commands.
+impl<R> ReadFromDescriptorChain for R
+where
+    R: std::io::Read,
+{
+    fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T> {
+        // We use `zeroed` instead of `uninit` because `read_exact` cannot be called with
+        // uninitialized memory. Since `T` implements `FromBytes`, its zeroed form is valid and
+        // initialized.
+        let mut obj = std::mem::MaybeUninit::zeroed();
+        // Safe because the slice boundaries cover `obj`, and the slice doesn't outlive it.
+        let slice = unsafe {
+            std::slice::from_raw_parts_mut(obj.as_mut_ptr() as *mut u8, std::mem::size_of::<T>())
+        };
+
+        self.read_exact(slice)?;
+
+        // Safe because obj can be initialized from an array of bytes.
+        Ok(unsafe { obj.assume_init() })
+    }
+}
+
+/// Crate-local extension trait for writing objects and responses into the device-writable section
+/// of a descriptor chain.
+trait WriteToDescriptorChain {
+    /// Write an arbitrary object to the guest.
+    fn write_obj<T: AsBytes>(&mut self, obj: &T) -> IoResult<()>;
+
+    /// Write a command response to the guest.
+    fn write_response<T: AsBytes>(&mut self, response: T) -> IoResult<()> {
+        self.write_obj(&response)
+    }
+
+    /// Send `code` as the error code of an error response.
+    fn write_err_response(&mut self, code: libc::c_int) -> IoResult<()> {
+        self.write_response(RespHeader::err(code))
+    }
+}
+
+/// Any implementor of `Write` can be used to write virtio-media responses.
+impl<W> WriteToDescriptorChain for W
+where
+    W: std::io::Write,
+{
+    fn write_obj<T: AsBytes>(&mut self, obj: &T) -> IoResult<()> {
+        self.write_all(obj.as_bytes())
     }
 }
 
