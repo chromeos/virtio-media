@@ -77,7 +77,10 @@ where
     R: std::io::Read,
 {
     fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T> {
-        let mut obj = std::mem::MaybeUninit::uninit();
+        // We use `zeroed` instead of `uninit` because `read_exact` cannot be called with
+        // uninitialized memory. Since `T` implements `FromBytes`, its zeroed form is valid and
+        // initialized.
+        let mut obj = std::mem::MaybeUninit::zeroed();
         // Safe because the slice boundaries cover `obj`, and the slice doesn't outlive it.
         let slice = unsafe {
             std::slice::from_raw_parts_mut(obj.as_mut_ptr() as *mut u8, std::mem::size_of::<T>())
