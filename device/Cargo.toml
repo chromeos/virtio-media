@@ -1,6 +1,6 @@
 [package]
 name = "virtio-media"
-version = "0.0.3"
+version = "0.0.4"
 license = "BSD-3-Clause"
 description = "Device support for virtio-media"
 repository = "https://github.com/chromeos/virtio-media"
