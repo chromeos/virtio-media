@@ -19,9 +19,13 @@ use v4l2r::ioctl::V4l2MplaneFormat;
 use v4l2r::ioctl::V4l2PlanesWithBacking;
 use v4l2r::ioctl::V4l2PlanesWithBackingMut;
 use v4l2r::memory::MemoryType;
+use v4l2r::Colorspace;
+use v4l2r::Quantization;
 use v4l2r::QueueClass;
 use v4l2r::QueueDirection;
 use v4l2r::QueueType;
+use v4l2r::XferFunc;
+use v4l2r::YCbCrEncoding;
 
 use crate::ioctl::virtio_media_dispatch_ioctl;
 use crate::ioctl::IoctlResult;
@@ -320,6 +324,38 @@ impl Deref for CropRectangle {
     }
 }
 
+/// Struct containing validated colorspace information for a format.
+#[derive(Debug, Clone, Copy)]
+struct V4l2FormatColorspace {
+    colorspace: Colorspace,
+    xfer_func: XferFunc,
+    ycbcr_enc: YCbCrEncoding,
+    quantization: Quantization,
+}
+
+impl Default for V4l2FormatColorspace {
+    fn default() -> Self {
+        Self {
+            colorspace: Colorspace::Rec709,
+            xfer_func: XferFunc::None,
+            ycbcr_enc: YCbCrEncoding::E709,
+            quantization: Quantization::LimRange,
+        }
+    }
+}
+
+impl V4l2FormatColorspace {
+    /// Apply the colorspace information of this object to `pix_mp`.
+    fn apply(self, pix_mp: &mut bindings::v4l2_pix_format_mplane) {
+        pix_mp.colorspace = self.colorspace as u32;
+        pix_mp.__bindgen_anon_1 = bindings::v4l2_pix_format_mplane__bindgen_ty_1 {
+            ycbcr_enc: self.ycbcr_enc as u8,
+        };
+        pix_mp.quantization = self.quantization as u8;
+        pix_mp.xfer_func = self.xfer_func as u8;
+    }
+}
+
 pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
     id: u32,
 
@@ -342,6 +378,9 @@ pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
 
     crop_rectangle: CropRectangle,
 
+    /// Current colorspace information of the format.
+    colorspace: V4l2FormatColorspace,
+
     /// Adapter-specific data.
     backend_session: S,
 }
@@ -353,6 +392,22 @@ impl<S: VideoDecoderBackendSession> VirtioMediaDeviceSession for VideoDecoderSes
 }
 
 impl<S: VideoDecoderBackendSession> VideoDecoderSession<S> {
+    /// Returns the current format for `direction`.
+    ///
+    /// This is essentially like calling the backend's corresponding
+    /// [`VideoDecoderBackendSession::current_format`] method, but also applies the colorspace
+    /// information potentially set by the user.
+    fn current_format(&self, direction: QueueDirection) -> V4l2MplaneFormat {
+        let format = self.backend_session.current_format(direction);
+
+        let mut pix_mp =
+            *<V4l2MplaneFormat as AsRef<bindings::v4l2_pix_format_mplane>>::as_ref(&format);
+
+        self.colorspace.apply(&mut pix_mp);
+
+        V4l2MplaneFormat::from((direction, pix_mp))
+    }
+
     fn try_decoder_cmd(&self, cmd: DecoderCmd) -> IoctlResult<DecoderCmd> {
         match cmd {
             DecoderCmd::Stop { .. } => Ok(DecoderCmd::stop()),
@@ -481,13 +536,37 @@ where
         }
 
         // SAFETY: safe because we have just confirmed the queue type is mplane.
-        let format = V4l2MplaneFormat::from((queue.direction(), unsafe { format.fmt.pix_mp }));
+        let pix_mp = unsafe { format.fmt.pix_mp };
+
+        // Process the colorspace now so we can restore it after applying the backend adjustment.
+        let colorspace = if queue.direction() == QueueDirection::Output {
+            V4l2FormatColorspace {
+                colorspace: Colorspace::n(pix_mp.colorspace)
+                    .unwrap_or(session.colorspace.colorspace),
+                xfer_func: XferFunc::n(pix_mp.xfer_func as u32)
+                    .unwrap_or(session.colorspace.xfer_func),
+                // TODO: safe because...
+                ycbcr_enc: YCbCrEncoding::n(unsafe { pix_mp.__bindgen_anon_1.ycbcr_enc as u32 })
+                    .unwrap_or(session.colorspace.ycbcr_enc),
+                quantization: Quantization::n(pix_mp.quantization as u32)
+                    .unwrap_or(session.colorspace.quantization),
+            }
+        } else {
+            session.colorspace
+        };
+
+        let format = V4l2MplaneFormat::from((queue.direction(), pix_mp));
 
         let format =
             self.backend
                 .adjust_format(&session.backend_session, queue.direction(), format);
 
-        Ok(format)
+        let mut pix_mp =
+            *<V4l2MplaneFormat as AsRef<bindings::v4l2_pix_format_mplane>>::as_ref(&format);
+
+        colorspace.apply(&mut pix_mp);
+
+        Ok(V4l2MplaneFormat::from((queue.direction(), pix_mp)))
     }
 }
 
@@ -515,6 +594,7 @@ where
             src_change_subscribed: false,
             eos_subscribed: false,
             crop_rectangle: CropRectangle::Settable(v4l2r::Rect::new(0, 0, 0, 0)),
+            colorspace: Default::default(),
         })
     }
 
@@ -746,7 +826,7 @@ where
             return Err(libc::EINVAL);
         }
 
-        let format = session.backend_session.current_format(queue.direction());
+        let format = session.current_format(queue.direction());
         let v4l2_format: &bindings::v4l2_format = format.as_ref();
         Ok(*v4l2_format)
     }
@@ -773,6 +853,14 @@ where
 
         self.backend
             .apply_format(&mut session.backend_session, queue.direction(), &format);
+
+        //  Setting the colorspace information on the `OUTPUT` queue sets it for both queues.
+        if queue.direction() == QueueDirection::Output {
+            session.colorspace.colorspace = format.colorspace();
+            session.colorspace.xfer_func = format.xfer_func();
+            session.colorspace.ycbcr_enc = format.ycbcr_enc();
+            session.colorspace.quantization = format.quantization();
+        }
 
         // If the crop rectangle is still settable, adjust it to the size of the new format.
         if let CropRectangle::Settable(rect) = &mut session.crop_rectangle {
