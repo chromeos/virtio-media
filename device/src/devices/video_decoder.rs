@@ -469,8 +469,7 @@ where
         }
     }
 
-    /// Validate `format` for `queue` and return the adjusted format. If `commit` is `true`, also
-    /// set the new parameters to our internal state.
+    /// Validate `format` for `queue` and return the adjusted format.
     fn try_format(
         &self,
         session: &VideoDecoderSession<B::Session>,
