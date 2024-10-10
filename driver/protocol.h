@@ -155,7 +155,7 @@ struct virtio_media_cmd_mmap {
 	struct virtio_media_cmd_header hdr;
 	u32 session_id;
 	u32 flags;
-	u64 offset;
+	u32 offset;
 };
 
 /**

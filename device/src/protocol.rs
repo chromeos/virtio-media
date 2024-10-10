@@ -195,7 +195,7 @@ pub struct IoctlCmd {
 pub struct MmapCmd {
     pub session_id: u32,
     pub flags: u32,
-    pub offset: u64,
+    pub offset: u32,
 }
 
 #[repr(C)]

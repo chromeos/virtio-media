@@ -242,18 +242,18 @@ where
         &mut self,
         session: &mut Self::Session,
         flags: u32,
-        offset: u64,
+        offset: u32,
     ) -> Result<(u64, u64), i32> {
         let buffer = session
             .buffers
             .iter_mut()
-            .find(|b| b.offset == offset as u32)
+            .find(|b| b.offset == offset)
             .ok_or(libc::EINVAL)?;
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
         let fd = buffer.fd.as_file().as_fd();
         let (guest_addr, size) = self
             .mmap_manager
-            .create_mapping(offset as u32, fd, rw)
+            .create_mapping(offset, fd, rw)
             .map_err(|_| libc::EINVAL)?;
 
         // TODO: would be nice to enable this, but how do we find the buffer again during munmap?

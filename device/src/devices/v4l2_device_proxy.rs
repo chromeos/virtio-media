@@ -1223,13 +1223,13 @@ where
         &mut self,
         session: &mut Self::Session,
         flags: u32,
-        offset: u64,
+        offset: u32,
     ) -> Result<(u64, u64), i32> {
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
 
         let plane_info = self
             .mmap_buffers
-            .get_mut(&(offset as u32))
+            .get_mut(&offset)
             .ok_or(libc::EINVAL)?;
 
         // Export the FD for the plane and cache it if needed.
@@ -1253,7 +1253,7 @@ where
 
         let (mapping_addr, mapping_size) = self
             .mmap_manager
-            .create_mapping(offset as u32, exported_fd.as_fd(), rw)
+            .create_mapping(offset, exported_fd.as_fd(), rw)
             // TODO: better error mapping?
             .map_err(|_| libc::EINVAL)?;
 

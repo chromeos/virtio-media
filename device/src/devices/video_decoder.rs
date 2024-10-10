@@ -629,7 +629,7 @@ where
         &mut self,
         session: &mut Self::Session,
         flags: u32,
-        offset: u64,
+        offset: u32,
     ) -> Result<(u64, u64), i32> {
         // Search for a MMAP plane with the right offset.
         // TODO: O(n), not critical but not great either.
@@ -647,7 +647,7 @@ where
                 }
             })
             .flatten()
-            .find(|(_, (_, p))| p.mem_offset() as u64 == offset)
+            .find(|(_, (_, p))| p.mem_offset() == offset)
             .map(|(b, (i, _))| (b, i))
             .ok_or(libc::EINVAL)?;
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
@@ -655,7 +655,7 @@ where
         let fd = buffer.backing.fd_for_plane(plane_idx).unwrap();
 
         self.host_mapper
-            .create_mapping(offset as u32, fd, rw)
+            .create_mapping(offset, fd, rw)
             .map_err(|e| {
                 log::error!(
                     "failed to map MMAP buffer at offset 0x{:x}: {:#}",
