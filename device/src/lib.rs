@@ -422,7 +422,7 @@ where
             VIRTIO_MEDIA_CMD_MUNMAP => reader
                 .read_obj()
                 .context("while reading UNMMAP command")
-                .and_then(|MunmapCmd { offset: guest_addr }| {
+                .and_then(|MunmapCmd { guest_addr }| {
                     match self.device.do_munmap(guest_addr) {
                         Ok(()) => writer.write_response(MunmapResp::ok()),
                         Err(e) => writer.write_err_response(e),

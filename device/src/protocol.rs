@@ -202,7 +202,7 @@ pub struct MmapCmd {
 #[derive(Debug, AsBytes)]
 pub struct MmapResp {
     hdr: RespHeader,
-    offset: u64,
+    guest_addr: u64,
     len: u64,
 }
 
@@ -210,7 +210,7 @@ impl MmapResp {
     pub fn ok(addr: u64, len: u64) -> Self {
         Self {
             hdr: RespHeader::ok(),
-            offset: addr,
+            guest_addr: addr,
             len,
         }
     }
@@ -219,7 +219,7 @@ impl MmapResp {
 #[repr(C)]
 #[derive(Debug, FromZeroes, FromBytes)]
 pub struct MunmapCmd {
-    pub offset: u64,
+    pub guest_addr: u64,
 }
 
 #[repr(C)]
