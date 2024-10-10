@@ -1127,6 +1127,10 @@ mod tests {
                 ptr::null()
             }
 
+            fn as_mut_ptr(&mut self) -> *mut u8 {
+                ptr::null_mut()
+            }
+
             fn len(&self) -> usize {
                 0
             }
