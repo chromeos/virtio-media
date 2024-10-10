@@ -105,8 +105,8 @@ pub enum RemoveMappingError {
     InvalidOffset,
 }
 
-const PAGE_SIZE: u64 = 0x1000;
-const PAGE_MASK: u64 = !(PAGE_SIZE - 1);
+const PAGE_SIZE: u32 = 0x1000;
+const PAGE_MASK: u32 = !(PAGE_SIZE - 1);
 
 impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
     /// Registers a new buffer at `offset`. If `offset` if `None`, then an offset is allocated and
@@ -125,15 +125,15 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
     /// allocation type can be used per instance (fixed or dynamic).
     pub fn register_buffer(
         &mut self,
-        offset: Option<u64>,
-        size: u64,
-    ) -> Result<u64, RegisterBufferError> {
+        offset: Option<u32>,
+        size: u32,
+    ) -> Result<u32, RegisterBufferError> {
         let offset = offset.unwrap_or_else(|| {
             self.buffers
                 .last()
                 // Align the start offset to the next page, or `register_buffer_by_offset` will
                 // fail.
-                .map(|b| ((b.offset as u64 + 1).next_multiple_of(PAGE_SIZE)))
+                .map(|b| ((b.offset + 1).next_multiple_of(PAGE_SIZE)))
                 .unwrap_or(0)
         });
 
@@ -143,11 +143,7 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
 
     /// Unregisters the buffer previously registered at `offset`. Returns `true` if a buffer was
     /// indeed registered as starting at `offset`, `false` otherwise.
-    pub fn unregister_buffer(&mut self, offset: u64) -> bool {
-        let Ok(offset) = u32::try_from(offset) else {
-            return false;
-        };
-
+    pub fn unregister_buffer(&mut self, offset: u32) -> bool {
         match self.buffers.binary_search_by_key(&offset, |b| b.offset) {
             Err(_) => false,
             Ok(index) => {
@@ -170,8 +166,8 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
     // `size` must be greater than `0` and `offset` must be a multiple of `PAGE_SIZE`.
     fn register_buffer_by_offset(
         &mut self,
-        offset: u64,
-        size: u64,
+        offset: u32,
+        size: u32,
     ) -> Result<(), RegisterBufferError> {
         if size == 0 {
             return Err(RegisterBufferError::EmptyBuffer);
@@ -180,14 +176,14 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
             return Err(RegisterBufferError::UnalignedOffset);
         }
 
-        let size = u32::try_from(size).map_err(|_| RegisterBufferError::NoFreeSpace)?;
-        let offset = offset as u32;
-
         // Check that `offset` is actually available.
         match self.buffers.binary_search_by_key(&offset, |b| b.offset) {
             // Already have a registered buffer at that very offset.
             Ok(_) => Err(RegisterBufferError::OffsetOccupied),
-            Err(index) => Ok(self.buffers.insert(index, MmapBuffer::new(offset, size))),
+            Err(index) => {
+                self.buffers.insert(index, MmapBuffer::new(offset, size));
+                Ok(())
+            }
         }
     }
 
@@ -203,12 +199,10 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
     /// result in a `EPERM` error.
     pub fn create_mapping(
         &mut self,
-        offset: u64,
+        offset: u32,
         fd: BorrowedFd,
         rw: bool,
     ) -> Result<(u64, u64), CreateMappingError> {
-        let offset = u32::try_from(offset).map_err(|_| CreateMappingError::InvalidOffset)?;
-        // TODO: should be we able to map from the middle of a buffer?
         let buffer = self
             .buffers
             .binary_search_by_key(&offset, |b| b.offset)
@@ -552,10 +546,6 @@ mod tests {
             ]
         );
 
-        assert_eq!(
-            mm.register_buffer_by_offset(0x0, 0x1_0000_0000),
-            Err(RegisterBufferError::NoFreeSpace)
-        );
         assert_eq!(
             mm.buffers,
             vec![

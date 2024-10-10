@@ -353,7 +353,7 @@ pub struct V4l2ProxyDevice<
 
     /// Map of memory offsets to detailed buffer information. Only used for queues which memory
     /// type is MMAP.
-    mmap_buffers: BTreeMap<u64, V4l2MmapPlaneInfo>,
+    mmap_buffers: BTreeMap<u32, V4l2MmapPlaneInfo>,
 
     mmap_manager: MmapMappingManager<HM>,
 }
@@ -426,11 +426,11 @@ where
                     let offset = plane.mem_offset();
 
                     self.mmap_manager
-                        .register_buffer(Some(offset as u64), *plane.length as u64)
+                        .register_buffer(Some(offset), *plane.length)
                         .unwrap();
 
                     self.mmap_buffers.insert(
-                        offset as u64,
+                        offset,
                         V4l2MmapPlaneInfo {
                             session_id: session.id,
                             queue,
@@ -1227,7 +1227,10 @@ where
     ) -> Result<(u64, u64), i32> {
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
 
-        let plane_info = self.mmap_buffers.get_mut(&offset).ok_or(libc::EINVAL)?;
+        let plane_info = self
+            .mmap_buffers
+            .get_mut(&(offset as u32))
+            .ok_or(libc::EINVAL)?;
 
         // Export the FD for the plane and cache it if needed.
         //
@@ -1250,7 +1253,7 @@ where
 
         let (mapping_addr, mapping_size) = self
             .mmap_manager
-            .create_mapping(offset, exported_fd.as_fd(), rw)
+            .create_mapping(offset as u32, exported_fd.as_fd(), rw)
             // TODO: better error mapping?
             .map_err(|_| libc::EINVAL)?;
 

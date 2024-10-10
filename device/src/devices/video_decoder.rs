@@ -609,8 +609,7 @@ where
                 buffer.v4l2_buffer.planes_with_backing_iter()
             {
                 for plane in planes {
-                    self.host_mapper
-                        .unregister_buffer(plane.mem_offset() as u64);
+                    self.host_mapper.unregister_buffer(plane.mem_offset());
                 }
             }
         }
@@ -656,7 +655,7 @@ where
         let fd = buffer.backing.fd_for_plane(plane_idx).unwrap();
 
         self.host_mapper
-            .create_mapping(offset, fd, rw)
+            .create_mapping(offset as u32, fd, rw)
             .map_err(|e| {
                 log::error!(
                     "failed to map MMAP buffer at offset 0x{:x}: {:#}",
@@ -902,8 +901,7 @@ where
                     buffer.v4l2_buffer.planes_with_backing_iter()
                 {
                     for plane in planes {
-                        self.host_mapper
-                            .unregister_buffer(plane.mem_offset() as u64);
+                        self.host_mapper.unregister_buffer(plane.mem_offset());
                     }
                 }
             }
@@ -920,7 +918,7 @@ where
                 .map(|i| {
                     let mmap_offset = self
                         .host_mapper
-                        .register_buffer(None, sizeimage as u64)
+                        .register_buffer(None, sizeimage)
                         .map_err(|_| libc::EINVAL)?;
 
                     VideoDecoderBuffer::new(
@@ -928,7 +926,7 @@ where
                         i as u32,
                         // TODO: only single-planar formats supported.
                         &[sizeimage as usize],
-                        mmap_offset as u32,
+                        mmap_offset,
                     )
                     .map_err(|e| {
                         // TODO: no, we need to unregister all the buffers and restore the

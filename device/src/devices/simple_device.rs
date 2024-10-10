@@ -70,7 +70,7 @@ struct Buffer {
     /// Offset that can be used to map the buffer.
     ///
     /// Cached from `v4l2_buffer` to avoid doing a match.
-    offset: u64,
+    offset: u32,
 }
 
 impl Buffer {
@@ -247,13 +247,13 @@ where
         let buffer = session
             .buffers
             .iter_mut()
-            .find(|b| b.offset == offset)
+            .find(|b| b.offset == offset as u32)
             .ok_or(libc::EINVAL)?;
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
         let fd = buffer.fd.as_file().as_fd();
         let (guest_addr, size) = self
             .mmap_manager
-            .create_mapping(offset, fd, rw)
+            .create_mapping(offset as u32, fd, rw)
             .map_err(|_| libc::EINVAL)?;
 
         // TODO: would be nice to enable this, but how do we find the buffer again during munmap?
@@ -422,7 +422,7 @@ where
                     .and_then(|fd| {
                         let offset = self
                             .mmap_manager
-                            .register_buffer(None, BUFFER_SIZE as u64)
+                            .register_buffer(None, BUFFER_SIZE)
                             .map_err(|_| libc::EINVAL)?;
 
                         let mut v4l2_buffer =
@@ -432,7 +432,7 @@ where
                         {
                             // SAFETY: every buffer has at least one plane.
                             let mut plane = planes.next().unwrap();
-                            plane.set_mem_offset(offset as u32);
+                            plane.set_mem_offset(offset);
                             *plane.length = BUFFER_SIZE;
                         } else {
                             // SAFETY: we have just set the buffer type to MMAP. Reaching this point means a bug in
