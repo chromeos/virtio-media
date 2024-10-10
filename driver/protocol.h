@@ -162,12 +162,12 @@ struct virtio_media_cmd_mmap {
  * struct virtio_media_resp_mmap - Device response for VIRTIO_MEDIA_CMD_MMAP.
  *
  * @hdr: header containing the status of the command.
- * @addr: offset into SHM region 0 of the start of the mapping.
+ * @guest_addr: offset into SHM region 0 of the start of the mapping.
  * @len: length of the mapping.
  */
 struct virtio_media_resp_mmap {
 	struct virtio_media_resp_header hdr;
-	u64 offset;
+	u64 guest_addr;
 	u64 len;
 };
 
@@ -184,7 +184,7 @@ struct virtio_media_resp_mmap {
  */
 struct virtio_media_cmd_munmap {
 	struct virtio_media_cmd_header hdr;
-	u64 offset;
+	u64 guest_addr;
 };
 
 /**
