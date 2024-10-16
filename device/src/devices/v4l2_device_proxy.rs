@@ -78,6 +78,7 @@ use v4l2r::ioctl::V4l2PlanesWithBackingMut;
 use v4l2r::memory::Memory;
 use v4l2r::memory::MemoryType;
 use v4l2r::memory::UserPtr;
+use v4l2r::QueueDirection;
 use v4l2r::QueueType;
 
 use crate::ioctl::virtio_media_dispatch_ioctl;
@@ -107,6 +108,7 @@ fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
     let mut resources = vec![];
     // The host buffer is a copy of the guest's with its plane resources updated.
     let mut host_buffer = guest_buffer.clone();
+    let writable = host_buffer.queue().direction() == QueueDirection::Capture;
 
     if let V4l2PlanesWithBackingMut::UserPtr(host_planes) =
         host_buffer.planes_with_backing_iter_mut()
@@ -114,9 +116,13 @@ fn guest_v4l2_buffer_to_host<M: VirtioMediaGuestMemoryMapper>(
         for (mut host_plane, mem_regions) in
             host_planes.filter(|p| *p.length > 0).zip(guest_regions)
         {
-            let mapping = m.new_mapping(mem_regions)?;
+            let mut mapping = m.new_mapping(mem_regions)?;
 
-            host_plane.set_userptr(mapping.as_ptr() as GuestAddrType);
+            host_plane.set_userptr(if writable {
+                mapping.as_mut_ptr()
+            } else {
+                mapping.as_ptr()
+            } as GuestAddrType);
             resources.push(mapping);
         }
     };
