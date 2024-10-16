@@ -23,6 +23,12 @@ pub struct VirtioMediaDeviceConfig {
     pub card: [u8; VIRTIO_MEDIA_CARD_NAME_LEN],
 }
 
+impl AsRef<[u8]> for VirtioMediaDeviceConfig {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
 pub const VIRTIO_MEDIA_CMD_OPEN: u32 = 1;
 pub const VIRTIO_MEDIA_CMD_CLOSE: u32 = 2;
 pub const VIRTIO_MEDIA_CMD_IOCTL: u32 = 3;
