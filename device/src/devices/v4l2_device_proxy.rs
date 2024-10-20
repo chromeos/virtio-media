@@ -92,11 +92,13 @@ use crate::protocol::V4l2Event;
 use crate::protocol::V4l2Ioctl;
 use crate::protocol::VIRTIO_MEDIA_MMAP_FLAG_RW;
 use crate::GuestMemoryRange;
+use crate::ReadFromDescriptorChain;
 use crate::VirtioMediaDevice;
 use crate::VirtioMediaDeviceSession;
 use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaGuestMemoryMapper;
 use crate::VirtioMediaHostMemoryMapper;
+use crate::WriteToDescriptorChain;
 
 type GuestAddrType = <UserPtr as Memory>::RawBacking;
 
@@ -1208,8 +1210,8 @@ where
     Q: VirtioMediaEventQueue,
     M: VirtioMediaGuestMemoryMapper,
     HM: VirtioMediaHostMemoryMapper,
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
 {
     type Session = V4l2Session<M>;
 
@@ -1233,10 +1235,7 @@ where
     ) -> Result<(u64, u64), i32> {
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
 
-        let plane_info = self
-            .mmap_buffers
-            .get_mut(&offset)
-            .ok_or(libc::EINVAL)?;
+        let plane_info = self.mmap_buffers.get_mut(&offset).ok_or(libc::EINVAL)?;
 
         // Export the FD for the plane and cache it if needed.
         //

@@ -46,12 +46,15 @@
 //!   module.
 
 pub mod devices;
+pub mod io;
 pub mod ioctl;
 pub mod memfd;
 pub mod mmap;
 pub mod poll;
 pub mod protocol;
 
+use io::ReadFromDescriptorChain;
+use io::WriteToDescriptorChain;
 use poll::SessionPoller;
 pub use v4l2r;
 
@@ -61,23 +64,8 @@ use std::os::fd::BorrowedFd;
 
 use anyhow::Context;
 use log::error;
-use zerocopy::AsBytes;
-use zerocopy::FromBytes;
 
 use protocol::*;
-
-/// Trait for reading objects from a reader, e.g. the device-readable section of a descriptor
-/// chain.
-pub trait FromDescriptorChain {
-    fn read_from_chain<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self>
-    where
-        Self: Sized;
-}
-
-/// Trait for writing objects to a writer, e.g. the device-writable section of a descriptor chain.
-pub trait ToDescriptorChain {
-    fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()>;
-}
 
 /// Trait for sending V4L2 events to the driver.
 pub trait VirtioMediaEventQueue {
@@ -169,7 +157,7 @@ pub trait VirtioMediaDeviceSession {
 /// [`VirtioMediaDeviceRunner`], which takes care of reading and dispatching commands. In addition,
 /// [`ioctl::VirtioMediaIoctlHandler`] should also be used to automatically parse and dispatch
 /// ioctls.
-pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
+pub trait VirtioMediaDevice<Reader: ReadFromDescriptorChain, Writer: WriteToDescriptorChain> {
     type Session: VirtioMediaDeviceSession;
 
     /// Create a new session which ID is `session_id`.
@@ -226,8 +214,8 @@ pub trait VirtioMediaDevice<Reader: std::io::Read, Writer: std::io::Write> {
 /// processing its commands.
 pub struct VirtioMediaDeviceRunner<Reader, Writer, Device, Poller>
 where
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
     Device: VirtioMediaDevice<Reader, Writer>,
     Poller: SessionPoller,
 {
@@ -240,8 +228,8 @@ where
 
 impl<Reader, Writer, Device, Poller> VirtioMediaDeviceRunner<Reader, Writer, Device, Poller>
 where
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
     Device: VirtioMediaDevice<Reader, Writer>,
     Poller: SessionPoller,
 {
@@ -255,65 +243,10 @@ where
     }
 }
 
-/// Crate-local extension trait for reading objects from the device-readable section of a
-/// descriptor chain.
-trait ReadFromDescriptorChain {
-    fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T>;
-}
-
-/// Any implementor of `Read` can be used to read virtio-media commands.
-impl<R> ReadFromDescriptorChain for R
-where
-    R: std::io::Read,
-{
-    fn read_obj<T: FromBytes>(&mut self) -> std::io::Result<T> {
-        // We use `zeroed` instead of `uninit` because `read_exact` cannot be called with
-        // uninitialized memory. Since `T` implements `FromBytes`, its zeroed form is valid and
-        // initialized.
-        let mut obj = std::mem::MaybeUninit::zeroed();
-        // Safe because the slice boundaries cover `obj`, and the slice doesn't outlive it.
-        let slice = unsafe {
-            std::slice::from_raw_parts_mut(obj.as_mut_ptr() as *mut u8, std::mem::size_of::<T>())
-        };
-
-        self.read_exact(slice)?;
-
-        // Safe because obj can be initialized from an array of bytes.
-        Ok(unsafe { obj.assume_init() })
-    }
-}
-
-/// Crate-local extension trait for writing objects and responses into the device-writable section
-/// of a descriptor chain.
-trait WriteToDescriptorChain {
-    /// Write an arbitrary object to the guest.
-    fn write_obj<T: AsBytes>(&mut self, obj: &T) -> IoResult<()>;
-
-    /// Write a command response to the guest.
-    fn write_response<T: AsBytes>(&mut self, response: T) -> IoResult<()> {
-        self.write_obj(&response)
-    }
-
-    /// Send `code` as the error code of an error response.
-    fn write_err_response(&mut self, code: libc::c_int) -> IoResult<()> {
-        self.write_response(RespHeader::err(code))
-    }
-}
-
-/// Any implementor of `Write` can be used to write virtio-media responses.
-impl<W> WriteToDescriptorChain for W
-where
-    W: std::io::Write,
-{
-    fn write_obj<T: AsBytes>(&mut self, obj: &T) -> IoResult<()> {
-        self.write_all(obj.as_bytes())
-    }
-}
-
 impl<Reader, Writer, Device, Poller> VirtioMediaDeviceRunner<Reader, Writer, Device, Poller>
 where
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
     Device: VirtioMediaDevice<Reader, Writer>,
     Poller: SessionPoller,
 {
@@ -327,7 +260,7 @@ where
     /// are propagated to the guest, with the exception of errors triggered while writing the
     /// response which are logged on the host side.
     pub fn handle_command(&mut self, reader: &mut Reader, writer: &mut Writer) {
-        let hdr: CmdHeader = match reader.read_obj() {
+        let hdr = match reader.read_obj::<CmdHeader>() {
             Ok(hdr) => hdr,
             Err(e) => {
                 error!("error while reading command header: {:#}", e);

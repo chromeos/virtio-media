@@ -40,10 +40,12 @@ use crate::protocol::SgEntry;
 use crate::protocol::V4l2Event;
 use crate::protocol::V4l2Ioctl;
 use crate::protocol::VIRTIO_MEDIA_MMAP_FLAG_RW;
+use crate::ReadFromDescriptorChain;
 use crate::VirtioMediaDevice;
 use crate::VirtioMediaDeviceSession;
 use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaHostMemoryMapper;
+use crate::WriteToDescriptorChain;
 
 /// Current status of a buffer.
 #[derive(Debug, PartialEq, Eq)]
@@ -203,8 +205,8 @@ impl<Q, HM, Reader, Writer> VirtioMediaDevice<Reader, Writer> for SimpleCaptureD
 where
     Q: VirtioMediaEventQueue,
     HM: VirtioMediaHostMemoryMapper,
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
 {
     type Session = SimpleCaptureDeviceSession;
 

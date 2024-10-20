@@ -57,122 +57,188 @@ use v4l2r::memory::MemoryType;
 use v4l2r::QueueDirection;
 use v4l2r::QueueType;
 
+use crate::io::ReadFromDescriptorChain;
+use crate::io::VmediaType;
+use crate::io::WriteToDescriptorChain;
 use crate::protocol::RespHeader;
 use crate::protocol::SgEntry;
 use crate::protocol::V4l2Ioctl;
-use crate::FromDescriptorChain;
-use crate::ReadFromDescriptorChain;
-use crate::ToDescriptorChain;
-use crate::WriteToDescriptorChain;
 
-/// Module allowing select V4L2 structures from implementing zerocopy and implementations of
-/// [`FromDescriptorChain`] and [`ToDescriptorChain`] for them.
-mod v4l2_zerocopy {
-    use v4l2r::bindings;
-    use zerocopy::AsBytes;
-    use zerocopy::FromBytes;
-    use zerocopy::FromZeroes;
+/// Reads a SG list of guest physical addresses passed from the driver and returns it.
+fn get_userptr_regions<R: ReadFromDescriptorChain>(
+    r: &mut R,
+    size: usize,
+) -> anyhow::Result<Vec<SgEntry>> {
+    let mut bytes_taken = 0;
+    let mut res = Vec::new();
 
-    use crate::FromDescriptorChain;
-    use crate::ReadFromDescriptorChain;
-    use crate::ToDescriptorChain;
-
-    /// Wrapper allowing any structure to be read/written using zerocopy. This obviously should be
-    /// used with caution and thus is private.
-    #[repr(transparent)]
-    struct ForceZeroCopyWrapper<T: Sized>(T);
-
-    unsafe impl<T: Sized> FromZeroes for ForceZeroCopyWrapper<T> {
-        fn only_derive_is_allowed_to_implement_this_trait() {}
+    while bytes_taken < size {
+        let sg_entry = r.read_obj::<SgEntry>()?;
+        bytes_taken += sg_entry.len as usize;
+        res.push(sg_entry);
     }
 
-    unsafe impl<T: Sized> FromBytes for ForceZeroCopyWrapper<T> {
-        fn only_derive_is_allowed_to_implement_this_trait() {}
-    }
+    Ok(res)
+}
 
-    unsafe impl<T: Sized> AsBytes for ForceZeroCopyWrapper<T> {
-        fn only_derive_is_allowed_to_implement_this_trait()
-        where
-            Self: Sized,
+/// Local trait for reading simple or complex objects from a reader, e.g. the device-readable
+/// section of a descriptor chain.
+trait FromDescriptorChain {
+    fn read_from_chain<R: ReadFromDescriptorChain>(reader: &mut R) -> std::io::Result<Self>
+    where
+        Self: Sized;
+}
+
+/// Implementation for simple objects that can be returned as-is after their endianness is
+/// fixed.
+impl<T> FromDescriptorChain for T
+where
+    T: VmediaType,
+{
+    fn read_from_chain<R: ReadFromDescriptorChain>(reader: &mut R) -> std::io::Result<Self> {
+        reader.read_obj()
+    }
+}
+
+/// Implementation to easily read a `v4l2_buffer` of `USERPTR` memory type and its associated
+/// guest-side buffers from a descriptor chain.
+impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
+    fn read_from_chain<R: ReadFromDescriptorChain>(reader: &mut R) -> IoResult<Self>
+    where
+        Self: Sized,
+    {
+        let v4l2_buffer = reader.read_obj::<v4l2_buffer>()?;
+        let queue = match QueueType::n(v4l2_buffer.type_) {
+            Some(queue) => queue,
+            None => return Err(std::io::ErrorKind::InvalidData.into()),
+        };
+
+        let v4l2_planes = if queue.is_multiplanar() && v4l2_buffer.length > 0 {
+            if v4l2_buffer.length > v4l2r::bindings::VIDEO_MAX_PLANES {
+                return Err(std::io::ErrorKind::InvalidData.into());
+            }
+
+            let planes: [v4l2r::bindings::v4l2_plane; v4l2r::bindings::VIDEO_MAX_PLANES as usize] =
+                (0..v4l2_buffer.length as usize)
+                    .map(|_| reader.read_obj::<v4l2_plane>())
+                    .collect::<IoResult<Vec<_>>>()?
+                    .into_iter()
+                    .chain(std::iter::repeat(Default::default()))
+                    .take(v4l2r::bindings::VIDEO_MAX_PLANES as usize)
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
+            Some(planes)
+        } else {
+            None
+        };
+
+        let v4l2_buffer = V4l2Buffer::try_from(UncheckedV4l2Buffer(v4l2_buffer, v4l2_planes))
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
+
+        // Read the `MemRegion`s of all planes if the buffer is `USERPTR`.
+        let guest_regions = if let V4l2PlanesWithBacking::UserPtr(planes) =
+            v4l2_buffer.planes_with_backing_iter()
         {
-        }
+            planes
+                .filter(|p| *p.length > 0)
+                .map(|p| {
+                    get_userptr_regions(reader, *p.length as usize)
+                        .map_err(|_| std::io::ErrorKind::InvalidData.into())
+                })
+                .collect::<IoResult<Vec<_>>>()?
+        } else {
+            vec![]
+        };
+
+        Ok((v4l2_buffer, guest_regions))
     }
+}
 
-    impl<T> FromDescriptorChain for ForceZeroCopyWrapper<T> {
-        fn read_from_chain<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-            reader.read_obj()
-        }
+/// Implementation to easily read a `v4l2_ext_controls` struct, its array of controls, and the SG
+/// list of the buffers pointed to by the controls from a descriptor chain.
+impl FromDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>, Vec<Vec<SgEntry>>) {
+    fn read_from_chain<R: ReadFromDescriptorChain>(reader: &mut R) -> std::io::Result<Self>
+    where
+        Self: Sized,
+    {
+        let ctrls = reader.read_obj::<v4l2_ext_controls>()?;
+
+        let ctrl_array = (0..ctrls.count)
+            .map(|_| reader.read_obj::<v4l2_ext_control>())
+            .collect::<IoResult<Vec<_>>>()?;
+
+        // Read all the payloads.
+        let mem_regions = ctrl_array
+            .iter()
+            .filter(|ctrl| ctrl.size > 0)
+            .map(|ctrl| {
+                get_userptr_regions(reader, ctrl.size as usize)
+                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
+            })
+            .collect::<IoResult<Vec<_>>>()?;
+
+        Ok((ctrls, ctrl_array, mem_regions))
     }
+}
 
-    impl<T> ToDescriptorChain for ForceZeroCopyWrapper<T> {
-        fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-            writer.write_all(self.as_bytes())
-        }
+/// Local trait for writing simple or complex objects to a writer, e.g. the device-writable section
+/// of a descriptor chain.
+trait ToDescriptorChain {
+    fn write_to_chain<W: WriteToDescriptorChain>(self, writer: &mut W) -> std::io::Result<()>;
+}
+
+/// Implementation for simple objects that can be written as-is after their endianness is
+/// fixed.
+impl<T> ToDescriptorChain for T
+where
+    T: VmediaType,
+{
+    fn write_to_chain<W: WriteToDescriptorChain>(self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_obj(self)
     }
+}
 
-    /// Trait granting implementations of [`FromDescriptorChain`] and [`ToDescriptorChain`] to
-    /// implementors.
-    ///
-    /// # Safety
-    ///
-    /// Only types that can be read from an arbitrary stream of data should implement this. This
-    /// covers all V4L2 types used in ioctls.
-    unsafe trait ForceZeroCopy {}
-
-    impl<T: ForceZeroCopy> FromDescriptorChain for T {
-        fn read_from_chain<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-            ForceZeroCopyWrapper::<T>::read_from_chain(reader).map(|r| r.0)
+/// Implementation to easily write a `v4l2_buffer` to a descriptor chain, while ensuring the number
+/// of planes written is not larger than a limit (i.e. the maximum number of planes that the
+/// descriptor chain can receive).
+impl ToDescriptorChain for (V4l2Buffer, usize) {
+    fn write_to_chain<W: WriteToDescriptorChain>(self, writer: &mut W) -> std::io::Result<()> {
+        let mut v4l2_buffer = *self.0.as_v4l2_buffer();
+        // If the buffer is multiplanar, nullify the `planes` pointer to avoid leaking host
+        // addresses.
+        if self.0.queue().is_multiplanar() {
+            v4l2_buffer.m.planes = std::ptr::null_mut();
         }
-    }
+        writer.write_obj(v4l2_buffer)?;
 
-    impl<T: ForceZeroCopy> ToDescriptorChain for T {
-        fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-            unsafe { std::mem::transmute::<&T, &ForceZeroCopyWrapper<T>>(self) }
-                .write_to_chain(writer)
+        // Write plane information if the buffer is multiplanar. Limit the number of planes to the
+        // upper bound we were given.
+        for plane in self.0.as_v4l2_planes().iter().take(self.1) {
+            writer.write_obj(*plane)?;
         }
+
+        Ok(())
     }
+}
 
-    // Allows V4L2 types to be read from/written to a descriptor chain.
+/// Implementation to easily write a `v4l2_ext_controls` struct and its array of controls to a
+/// descriptor chain.
+impl ToDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>) {
+    fn write_to_chain<W: WriteToDescriptorChain>(self, writer: &mut W) -> std::io::Result<()> {
+        let (ctrls, ctrl_array) = self;
+        let mut ctrls = ctrls;
 
-    unsafe impl ForceZeroCopy for () {}
-    unsafe impl ForceZeroCopy for u32 {}
-    unsafe impl ForceZeroCopy for i32 {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_buffer {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_standard {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_input {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_control {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_std_id {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_tuner {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_audio {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_plane {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_format {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_enc_idx {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_output {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_audioout {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_modulator {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_frequency {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_frmsizeenum {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_frmivalenum {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_encoder_cmd {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_decoder_cmd {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_dv_timings {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_event_subscription {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_create_buffers {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_selection {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_enum_dv_timings {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_dv_timings_cap {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_frequency_band {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_query_ext_ctrl {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_queryctrl {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_querymenu {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_ext_control {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_ext_controls {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_fmtdesc {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_requestbuffers {}
-    unsafe impl ForceZeroCopy for bindings::v4l2_streamparm {}
+        // Nullify the control pointer to avoid leaking host addresses.
+        ctrls.controls = std::ptr::null_mut();
+        writer.write_obj(ctrls)?;
 
-    unsafe impl ForceZeroCopy for crate::protocol::DequeueBufferEvent {}
-    unsafe impl ForceZeroCopy for crate::protocol::SessionEvent {}
+        for ctrl in ctrl_array {
+            writer.write_obj(ctrl)?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Returns `ENOTTY` to signal that an ioctl is not handled by this device.
@@ -622,7 +688,7 @@ pub trait VirtioMediaIoctlHandler {
 
 /// Writes a `ENOTTY` error response into `writer` to signal that an ioctl is not implemented by
 /// the device.
-fn invalid_ioctl<W: std::io::Write>(code: V4l2Ioctl, writer: &mut W) -> IoResult<()> {
+fn invalid_ioctl<W: WriteToDescriptorChain>(code: V4l2Ioctl, writer: &mut W) -> IoResult<()> {
     writer.write_err_response(libc::ENOTTY).map_err(|e| {
         log::error!(
             "failed to write error response for invalid ioctl {:?}: {:#}",
@@ -631,143 +697,6 @@ fn invalid_ioctl<W: std::io::Write>(code: V4l2Ioctl, writer: &mut W) -> IoResult
         );
         e
     })
-}
-
-/// Reads a SG list of guest physical addresses passed from the driver and returns it.
-fn get_userptr_regions<R: std::io::Read>(r: &mut R, size: usize) -> anyhow::Result<Vec<SgEntry>> {
-    let mut bytes_taken = 0;
-    let mut res = Vec::new();
-
-    while bytes_taken < size {
-        let sg_entry = r.read_obj::<SgEntry>()?;
-        bytes_taken += sg_entry.len as usize;
-        res.push(sg_entry);
-    }
-
-    Ok(res)
-}
-
-/// Allows to easily read a `v4l2_buffer` of `USERPTR` memory type and its associated guest-side
-/// buffers from a descriptor chain.
-impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
-    fn read_from_chain<R: std::io::Read>(reader: &mut R) -> IoResult<Self>
-    where
-        Self: Sized,
-    {
-        let v4l2_buffer = v4l2_buffer::read_from_chain(reader)?;
-        let queue = match QueueType::n(v4l2_buffer.type_) {
-            Some(queue) => queue,
-            None => return Err(std::io::ErrorKind::InvalidData.into()),
-        };
-
-        let v4l2_planes = if queue.is_multiplanar() && v4l2_buffer.length > 0 {
-            if v4l2_buffer.length > v4l2r::bindings::VIDEO_MAX_PLANES {
-                return Err(std::io::ErrorKind::InvalidData.into());
-            }
-
-            let planes: [v4l2r::bindings::v4l2_plane; v4l2r::bindings::VIDEO_MAX_PLANES as usize] =
-                (0..v4l2_buffer.length as usize)
-                    .map(|_| v4l2_plane::read_from_chain(reader))
-                    .collect::<IoResult<Vec<_>>>()?
-                    .into_iter()
-                    .chain(std::iter::repeat(Default::default()))
-                    .take(v4l2r::bindings::VIDEO_MAX_PLANES as usize)
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
-            Some(planes)
-        } else {
-            None
-        };
-
-        let v4l2_buffer = V4l2Buffer::try_from(UncheckedV4l2Buffer(v4l2_buffer, v4l2_planes))
-            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
-
-        // Read the `MemRegion`s of all planes if the buffer is `USERPTR`.
-        let guest_regions = if let V4l2PlanesWithBacking::UserPtr(planes) =
-            v4l2_buffer.planes_with_backing_iter()
-        {
-            planes
-                .filter(|p| *p.length > 0)
-                .map(|p| {
-                    get_userptr_regions(reader, *p.length as usize)
-                        .map_err(|_| std::io::ErrorKind::InvalidData.into())
-                })
-                .collect::<IoResult<Vec<_>>>()?
-        } else {
-            vec![]
-        };
-
-        Ok((v4l2_buffer, guest_regions))
-    }
-}
-
-/// Write a `v4l2_buffer` to a descriptor chain, while ensuring the number of planes written is not
-/// larger than a limit (i.e. the maximum number of planes that the descriptor chain can receive).
-impl ToDescriptorChain for (V4l2Buffer, usize) {
-    fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let mut v4l2_buffer = *self.0.as_v4l2_buffer();
-        // If the buffer is multiplanar, nullify the `planes` pointer to avoid leaking host
-        // addresses.
-        if self.0.queue().is_multiplanar() {
-            v4l2_buffer.m.planes = std::ptr::null_mut();
-        }
-        v4l2_buffer.write_to_chain(writer)?;
-
-        // Write plane information if the buffer is multiplanar. Limit the number of planes to the
-        // upper bound we were given.
-        for plane in self.0.as_v4l2_planes().iter().take(self.1) {
-            plane.write_to_chain(writer)?;
-        }
-
-        Ok(())
-    }
-}
-
-/// Allows to easily read a `v4l2_ext_controls` struct, its array of controls, and the SG list of
-/// the buffers pointed to by the controls from a descriptor chain.
-impl FromDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>, Vec<Vec<SgEntry>>) {
-    fn read_from_chain<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self>
-    where
-        Self: Sized,
-    {
-        let ctrls = v4l2_ext_controls::read_from_chain(reader)?;
-
-        let ctrl_array = (0..ctrls.count)
-            .map(|_| v4l2_ext_control::read_from_chain(reader))
-            .collect::<IoResult<Vec<_>>>()?;
-
-        // Read all the payloads.
-        let mem_regions = ctrl_array
-            .iter()
-            .filter(|ctrl| ctrl.size > 0)
-            .map(|ctrl| {
-                get_userptr_regions(reader, ctrl.size as usize)
-                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
-            })
-            .collect::<IoResult<Vec<_>>>()?;
-
-        Ok((ctrls, ctrl_array, mem_regions))
-    }
-}
-
-/// Allows to easily write a `v4l2_ext_controls` struct and its array of controls to a descriptor
-/// chain.
-impl ToDescriptorChain for (v4l2_ext_controls, Vec<v4l2_ext_control>) {
-    fn write_to_chain<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let (ctrls, ctrl_array) = self;
-        let mut ctrls = *ctrls;
-
-        // Nullify the control pointer to avoid leaking host addresses.
-        ctrls.controls = std::ptr::null_mut();
-        ctrls.write_to_chain(writer)?;
-
-        for ctrl in ctrl_array {
-            ctrl.write_to_chain(writer)?;
-        }
-
-        Ok(())
-    }
 }
 
 /// Implements a `WR` ioctl for which errors may also carry a payload.
@@ -786,8 +715,8 @@ fn wr_ioctl_with_err_payload<Reader, Writer, I, O, X>(
     process: X,
 ) -> IoResult<()>
 where
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
     I: FromDescriptorChain,
     O: ToDescriptorChain,
     X: FnOnce(I) -> Result<O, (i32, Option<O>)>,
@@ -828,8 +757,8 @@ fn wr_ioctl<Reader, Writer, I, O, X>(
     process: X,
 ) -> IoResult<()>
 where
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
     I: FromDescriptorChain,
     O: ToDescriptorChain,
     X: FnOnce(I) -> Result<O, i32>,
@@ -853,8 +782,8 @@ fn w_ioctl<Reader, Writer, I, X>(
 ) -> IoResult<()>
 where
     I: FromDescriptorChain,
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
     X: FnOnce(I) -> Result<(), i32>,
 {
     wr_ioctl(ioctl, reader, writer, process)
@@ -868,7 +797,7 @@ where
 ///   the guest is returned.
 fn r_ioctl<Writer, O, X>(ioctl: V4l2Ioctl, writer: &mut Writer, process: X) -> IoResult<()>
 where
-    Writer: std::io::Write,
+    Writer: WriteToDescriptorChain,
     O: ToDescriptorChain,
     X: FnOnce() -> Result<O, i32>,
 {
@@ -905,8 +834,8 @@ pub fn virtio_media_dispatch_ioctl<S, H, Reader, Writer>(
 ) -> IoResult<()>
 where
     H: VirtioMediaIoctlHandler<Session = S>,
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
 {
     use V4l2Ioctl::*;
 

@@ -27,6 +27,8 @@ use v4l2r::QueueType;
 use v4l2r::XferFunc;
 use v4l2r::YCbCrEncoding;
 
+use crate::io::ReadFromDescriptorChain;
+use crate::io::WriteToDescriptorChain;
 use crate::ioctl::virtio_media_dispatch_ioctl;
 use crate::ioctl::IoctlResult;
 use crate::ioctl::VirtioMediaIoctlHandler;
@@ -575,8 +577,8 @@ where
     B: VideoDecoderBackend,
     Q: VirtioMediaEventQueue,
     HM: VirtioMediaHostMemoryMapper,
-    Reader: std::io::Read,
-    Writer: std::io::Write,
+    Reader: ReadFromDescriptorChain,
+    Writer: WriteToDescriptorChain,
 {
     type Session = <Self as VirtioMediaIoctlHandler>::Session;
 
