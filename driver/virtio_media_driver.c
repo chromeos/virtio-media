@@ -16,10 +16,6 @@
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
-#include <media/frame_vector.h>
-#include <media/v4l2-dev.h>
-#include <media/v4l2-event.h>
-#include <media/videobuf2-memops.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/version.h>
@@ -27,6 +23,10 @@
 #include <linux/virtio_config.h>
 #include <linux/virtio_ids.h>
 
+#include <media/frame_vector.h>
+#include <media/v4l2-dev.h>
+#include <media/v4l2-event.h>
+#include <media/videobuf2-memops.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 
