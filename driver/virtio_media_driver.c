@@ -852,6 +852,7 @@ static void virtio_media_remove(struct virtio_device *virtio_dev)
 	struct virtio_media *vv = virtio_dev->priv;
 	struct list_head *p, *n;
 
+	cancel_work_sync(&vv->eventq_work);
 	virtio_reset_device(virtio_dev);
 
 	v4l2_device_unregister(&vv->v4l2_dev);
