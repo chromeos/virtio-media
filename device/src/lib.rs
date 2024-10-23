@@ -355,13 +355,17 @@ where
             VIRTIO_MEDIA_CMD_MUNMAP => reader
                 .read_obj()
                 .context("while reading UNMMAP command")
-                .and_then(|MunmapCmd { guest_addr }| {
-                    match self.device.do_munmap(guest_addr) {
-                        Ok(()) => writer.write_response(MunmapResp::ok()),
-                        Err(e) => writer.write_err_response(e),
-                    }
-                    .context("while writing response for MUNMAP command")
-                }),
+                .and_then(
+                    |MunmapCmd {
+                         driver_addr: guest_addr,
+                     }| {
+                        match self.device.do_munmap(guest_addr) {
+                            Ok(()) => writer.write_response(MunmapResp::ok()),
+                            Err(e) => writer.write_err_response(e),
+                        }
+                        .context("while writing response for MUNMAP command")
+                    },
+                ),
             _ => writer
                 .write_err_response(libc::ENOTTY)
                 .context("while writing error response for invalid command"),
