@@ -622,7 +622,7 @@ static void virtio_media_vma_close_locked(struct vm_area_struct *vma)
 
 	mutex_lock(&vv->bufs_lock);
 	cmd_munmap->hdr.cmd = VIRTIO_MEDIA_CMD_MUNMAP;
-	cmd_munmap->guest_addr =
+	cmd_munmap->driver_addr =
 		(vma->vm_pgoff << PAGE_SHIFT) - vv->mmap_region.addr;
 	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(*resp_munmap),
 					NULL);
@@ -699,7 +699,7 @@ static int virtio_media_device_mmap(struct file *file,
 	 * Keep the guest address at which the buffer is mapped since we will
 	 * use that to unmap.
 	 */
-	vma->vm_pgoff = (resp_mmap->guest_addr + vv->mmap_region.addr) >>
+	vma->vm_pgoff = (resp_mmap->driver_addr + vv->mmap_region.addr) >>
 			PAGE_SHIFT;
 
 	if (vma->vm_end - vma->vm_start > PAGE_ALIGN(resp_mmap->len)) {

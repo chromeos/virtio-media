@@ -19,7 +19,7 @@
  * struct virtio_media_cmd_header - Header for all virtio commands from the driver to the device on the commandq.
  *
  * @cmd: one of VIRTIO_MEDIA_CMD_*.
- * @__padding: must be set to zero by the guest.
+ * @__padding: must be set to zero by the driver.
  */
 struct virtio_media_cmd_header {
 	u32 cmd;
@@ -143,7 +143,7 @@ struct virtio_media_resp_ioctl {
 #define VIRTIO_MEDIA_MMAP_FLAG_RW (1 << 0)
 
 /**
- * VIRTIO_MEDIA_CMD_MMAP - Command for mapping a MMAP buffer into the guest's address space.
+ * VIRTIO_MEDIA_CMD_MMAP - Command for mapping a MMAP buffer into the driver's address space.
  *
  */
 #define VIRTIO_MEDIA_CMD_MMAP 4
@@ -162,12 +162,12 @@ struct virtio_media_cmd_mmap {
  * struct virtio_media_resp_mmap - Device response for VIRTIO_MEDIA_CMD_MMAP.
  *
  * @hdr: header containing the status of the command.
- * @guest_addr: offset into SHM region 0 of the start of the mapping.
+ * @driver_addr: offset into SHM region 0 of the start of the mapping.
  * @len: length of the mapping.
  */
 struct virtio_media_resp_mmap {
 	struct virtio_media_resp_header hdr;
-	u64 guest_addr;
+	u64 driver_addr;
 	u64 len;
 };
 
@@ -179,12 +179,12 @@ struct virtio_media_resp_mmap {
 /**
  * struct virtio_media_cmd_munmap - Driver command for VIRTIO_MEDIA_CMD_MUNMAP.
  *
- * @guest_addr: offset into SHM region 0 at which the buffer has been previously
+ * @driver_addr: offset into SHM region 0 at which the buffer has been previously
  * mapped.
  */
 struct virtio_media_cmd_munmap {
 	struct virtio_media_cmd_header hdr;
-	u64 guest_addr;
+	u64 driver_addr;
 };
 
 /**
