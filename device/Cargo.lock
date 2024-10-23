@@ -336,9 +336,9 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "v4l2r"
-version = "0.0.4"
+version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dbef75deba5f801229a648f72cffc2007befa7732fedfe05ca73ace030f597a"
+checksum = "fe1d612d2df2a0802020c49a1b029282c45991cdfff1731b5fc61ed3dce4168a"
 dependencies = [
  "anyhow",
  "bindgen",
