@@ -385,6 +385,13 @@ pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
 
     /// Adapter-specific data.
     backend_session: S,
+
+    /// The buffer-flag LAST has at least two different interpretations: Generally
+    /// it signals the end of the stream, however, during a format change sequence it
+    /// marks the transition point from the previous to the new sequence. We keep
+    /// track of pending format changes here to avoid signalling EOS if the incoming
+    /// buffer's LAST flag is just marking the completion of the format change.
+    format_change_pending: bool,
 }
 
 impl<S: VideoDecoderBackendSession> VirtioMediaDeviceSession for VideoDecoderSession<S> {
@@ -597,6 +604,7 @@ where
             eos_subscribed: false,
             crop_rectangle: CropRectangle::Settable(v4l2r::Rect::new(0, 0, 0, 0)),
             colorspace: Default::default(),
+            format_change_pending: false,
         })
     }
 
@@ -714,6 +722,8 @@ where
                                 },
                             )))
                     }
+
+                    session.format_change_pending = true;
                 }
                 VideoDecoderBackendEvent::FrameCompleted {
                     buffer_id,
@@ -745,15 +755,30 @@ where
                             buffer.v4l2_buffer.clone(),
                         )));
 
-                    if is_last && session.eos_subscribed {
-                        self.event_queue
-                            .send_event(V4l2Event::Event(SessionEvent::new(
-                                session.id,
-                                bindings::v4l2_event {
-                                    type_: bindings::V4L2_EVENT_EOS,
-                                    ..Default::default()
-                                },
-                            )))
+                    if is_last {
+                        if session.format_change_pending {
+                            // The end of the format-change sequence is also
+                            // signaled via a buffer marked "LAST", but this is
+                            // not to be interpreted as the end of the stream.
+                            session.format_change_pending = false;
+
+                            // TODO: If a client (probably unaware of or unable
+                            // to deal with dynamic format changes) attempts to
+                            // DQBUF buffers after the LAST marker (without going
+                            // through the dynamic resolution change sequence),
+                            // we are supposed to return -EPIPE according to
+                            // https://docs.kernel.org/userspace-api/media/v4l/dev-decoder.html
+                            // Section 4.5.1.9 Dynamic Resolution Change
+                        } else if session.eos_subscribed {
+                            self.event_queue
+                                .send_event(V4l2Event::Event(SessionEvent::new(
+                                    session.id,
+                                    bindings::v4l2_event {
+                                        type_: bindings::V4L2_EVENT_EOS,
+                                        ..Default::default()
+                                    },
+                                )))
+                        }
                     }
                 }
             }
