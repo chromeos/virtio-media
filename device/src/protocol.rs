@@ -9,7 +9,7 @@ use zerocopy::AsBytes;
 use zerocopy::FromBytes;
 use zerocopy::FromZeroes;
 
-pub const VIRTIO_ID_MEDIA: u32 = 49;
+pub const VIRTIO_ID_MEDIA: u32 = 48;
 
 const VIRTIO_MEDIA_CARD_NAME_LEN: usize = 32;
 #[derive(Debug, AsBytes)]

@@ -69,7 +69,7 @@ Implemented devices are:
 
 ## Virtio device ID
 
-Virtio-media uses device ID `49`.
+Virtio-media uses device ID `48`.
 
 ## Virtqueues
 

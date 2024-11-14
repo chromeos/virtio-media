@@ -37,7 +37,7 @@
 #define VIRTIO_MEDIA_NUM_EVENT_BUFS 16
 
 #ifndef VIRTIO_ID_MEDIA
-#define VIRTIO_ID_MEDIA 49
+#define VIRTIO_ID_MEDIA 48
 #endif
 
 /* ID of the SHM region into which MMAP buffer will be mapped. */
