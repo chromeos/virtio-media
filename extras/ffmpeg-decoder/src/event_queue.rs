@@ -94,7 +94,10 @@ mod tests {
         let mut event_queue = EventQueue::new().unwrap();
 
         event_queue
-            .queue_event(VideoDecoderBackendEvent::InputBufferDone(1))
+            .queue_event(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 1,
+                error: 0
+            })
             .unwrap();
         assert_eq!(event_queue.len(), 1);
         event_queue
@@ -112,7 +115,10 @@ mod tests {
 
         assert!(matches!(
             event_queue.dequeue_event(),
-            Some(VideoDecoderBackendEvent::InputBufferDone(1))
+            Some(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 1,
+                error: 0
+            })
         ));
         assert_eq!(event_queue.len(), 1);
         assert_eq!(
@@ -147,31 +153,49 @@ mod tests {
 
         // `event_pipe` should signal as long as the queue is not empty.
         event_queue
-            .queue_event(VideoDecoderBackendEvent::InputBufferDone(1))
+            .queue_event(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 1,
+                error: 0
+            })
             .unwrap();
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
         event_queue
-            .queue_event(VideoDecoderBackendEvent::InputBufferDone(2))
+            .queue_event(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 2,
+                error: 0
+            })
             .unwrap();
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
         event_queue
-            .queue_event(VideoDecoderBackendEvent::InputBufferDone(3))
+            .queue_event(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 3,
+                error: 0
+            })
             .unwrap();
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
 
         assert_eq!(
             event_queue.dequeue_event(),
-            Some(VideoDecoderBackendEvent::InputBufferDone(1))
+            Some(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 1,
+                error: 0
+            })
         );
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
         assert_eq!(
             event_queue.dequeue_event(),
-            Some(VideoDecoderBackendEvent::InputBufferDone(2))
+            Some(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 2,
+                error: 0
+            })
         );
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
         assert_eq!(
             event_queue.dequeue_event(),
-            Some(VideoDecoderBackendEvent::InputBufferDone(3))
+            Some(VideoDecoderBackendEvent::InputBufferDone {
+                buffer_id: 3,
+                error: 0
+            })
         );
 
         // The queue is empty again, so `event_pipe` should not signal.

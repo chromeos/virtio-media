@@ -109,7 +109,11 @@ pub enum VideoDecoderBackendEvent {
     /// [`VideoDecoderBackendSession::current_format`].
     StreamFormatChanged,
     /// Sent whenever an `OUTPUT` buffer is done processing and can be reused.
-    InputBufferDone(u32),
+    InputBufferDone {
+        buffer_id: u32,
+        /// If error != 0, indicate the error flag on the corresponding v4l2_buffer
+        error: i32,
+    },
     /// Sent whenever a decoded frame is ready on the `CAPTURE` queue.
     FrameCompleted {
         buffer_id: u32,
@@ -689,13 +693,17 @@ where
     fn process_events(&mut self, session: &mut Self::Session) -> Result<(), i32> {
         let has_event = if let Some(event) = session.backend_session.next_event() {
             match event {
-                VideoDecoderBackendEvent::InputBufferDone(id) => {
+                VideoDecoderBackendEvent::InputBufferDone { buffer_id: id, error } => {
                     let Some(buffer) = session.input_buffers.get_mut(id as usize) else {
                         log::error!("no matching OUTPUT buffer with id {} to process event", id);
                         return Ok(());
                     };
 
                     buffer.v4l2_buffer.clear_flags(BufferFlags::QUEUED);
+
+                    if error != 0 {
+                        buffer.v4l2_buffer.set_flags(BufferFlags::ERROR);
+                    }
 
                     self.event_queue
                         .send_event(V4l2Event::DequeueBuffer(DequeueBufferEvent::new(
