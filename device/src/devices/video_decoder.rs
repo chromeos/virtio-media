@@ -623,6 +623,8 @@ where
                 }
             }
         }
+
+        self.backend.close_session(session.backend_session);
     }
 
     fn do_ioctl(
