@@ -444,17 +444,18 @@ impl<S: VideoDecoderBackendSession> VideoDecoderSession<S> {
     ///
     /// In the decoder device, we need to keep them until both queues are streaming. Same applies
     /// to input buffers BTW.
-    fn try_send_pending_output_buffers(&mut self) {
+    fn try_send_pending_output_buffers(&mut self) -> IoctlResult<()> {
         if !self.state.is_output_streaming() {
-            return;
+            return Ok(());
         }
 
         for i in self.pending_output_buffers.drain(..) {
             let buffer = self.output_buffers.get_mut(i as usize).unwrap();
             self.backend_session
-                .use_as_output(buffer.index(), &mut buffer.backing)
-                .unwrap();
+                .use_as_output(buffer.index(), &mut buffer.backing)?;
         }
+
+        Ok(())
     }
 }
 
@@ -1043,9 +1044,7 @@ where
             // TODO: start queueing pending buffers?
         }
 
-        session.try_send_pending_output_buffers();
-
-        Ok(())
+        session.try_send_pending_output_buffers()
     }
 
     fn streamoff(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
@@ -1210,7 +1209,7 @@ where
                 let res = v4l2_buffer.clone();
 
                 session.pending_output_buffers.push(buffer.index());
-                session.try_send_pending_output_buffers();
+                session.try_send_pending_output_buffers()?;
 
                 Ok(res)
             }
@@ -1261,7 +1260,7 @@ where
                             .backend_session
                             .streaming_state(QueueDirection::Capture, true);
                     }
-                    session.try_send_pending_output_buffers();
+                    session.try_send_pending_output_buffers()?;
                 }
             }
             DecoderCmd::Pause { .. } => {
