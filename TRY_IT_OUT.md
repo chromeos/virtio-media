@@ -100,8 +100,6 @@ This command does the following:
    ```console
    git clone --depth=1 https://chromium.googlesource.com/crosvm/crosvm
    cd crosvm
-   git fetch --depth=10 origin refs/changes/29/5065329/9
-   git checkout FETCH_HEAD
    git submodule update --init
    ```
 
@@ -123,7 +121,7 @@ cd ..  # Back to the workspace root
   --rwdisk debian-12.img \
   -p "root=/dev/vda1" \
   --shared-dir "$PWD/virtio-media:vmedia:type=fs" \
-  --simple-media
+  --simple-media-device
 ```
 
 This command does the following:
