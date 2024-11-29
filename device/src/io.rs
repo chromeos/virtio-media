@@ -19,9 +19,8 @@
 use std::io::Result as IoResult;
 use std::mem::MaybeUninit;
 
-use zerocopy::AsBytes;
-use zerocopy::FromBytes;
-use zerocopy::FromZeroes;
+use zerocopy::Immutable;
+use zerocopy::IntoBytes;
 
 #[cfg(target_endian = "little")]
 mod le;
@@ -115,15 +114,11 @@ impl<T: VmediaType> LeWrapper<T> {
     }
 }
 
-unsafe impl<T: VmediaType> FromZeroes for LeWrapper<T> {
+unsafe impl<T: VmediaType> Immutable for LeWrapper<T> {
     fn only_derive_is_allowed_to_implement_this_trait() {}
 }
 
-unsafe impl<T: VmediaType> FromBytes for LeWrapper<T> {
-    fn only_derive_is_allowed_to_implement_this_trait() {}
-}
-
-unsafe impl<T: VmediaType> AsBytes for LeWrapper<T> {
+unsafe impl<T: VmediaType> IntoBytes for LeWrapper<T> {
     fn only_derive_is_allowed_to_implement_this_trait()
     where
         Self: Sized,

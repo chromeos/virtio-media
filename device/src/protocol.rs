@@ -5,14 +5,14 @@
 use enumn::N;
 use v4l2r::bindings::v4l2_event;
 use v4l2r::ioctl::V4l2Buffer;
-use zerocopy::AsBytes;
 use zerocopy::FromBytes;
-use zerocopy::FromZeroes;
+use zerocopy::Immutable;
+use zerocopy::IntoBytes;
 
 pub const VIRTIO_ID_MEDIA: u32 = 48;
 
 const VIRTIO_MEDIA_CARD_NAME_LEN: usize = 32;
-#[derive(Debug, AsBytes)]
+#[derive(Debug, Immutable, IntoBytes)]
 #[repr(C)]
 pub struct VirtioMediaDeviceConfig {
     /// The device_caps field of struct video_device.
@@ -126,7 +126,7 @@ pub enum V4l2Ioctl {
 }
 
 #[repr(C)]
-#[derive(Debug, FromZeroes, FromBytes)]
+#[derive(Debug, FromBytes, Immutable)]
 pub struct SgEntry {
     pub start: u64,
     pub len: u32,
@@ -134,14 +134,14 @@ pub struct SgEntry {
 }
 
 #[repr(C)]
-#[derive(Debug, FromZeroes, FromBytes)]
+#[derive(Debug, FromBytes, Immutable)]
 pub struct CmdHeader {
     pub cmd: u32,
     _padding: u32,
 }
 
 #[repr(C)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, Immutable, IntoBytes)]
 pub struct RespHeader {
     pub errno: i32,
     _padding: u32,
@@ -161,11 +161,11 @@ impl RespHeader {
 }
 
 #[repr(C)]
-#[derive(Debug, FromZeroes, FromBytes)]
+#[derive(Debug, FromBytes, Immutable)]
 pub struct OpenCmd {}
 
 #[repr(C)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, Immutable, IntoBytes)]
 pub struct OpenResp {
     hdr: RespHeader,
     session_id: u32,
@@ -183,21 +183,21 @@ impl OpenResp {
 }
 
 #[repr(C)]
-#[derive(Debug, FromZeroes, FromBytes)]
+#[derive(Debug, FromBytes, Immutable)]
 pub struct CloseCmd {
     pub session_id: u32,
     _padding: u32,
 }
 
 #[repr(C)]
-#[derive(Debug, FromZeroes, FromBytes)]
+#[derive(Debug, FromBytes, Immutable)]
 pub struct IoctlCmd {
     pub session_id: u32,
     pub code: u32,
 }
 
 #[repr(C)]
-#[derive(Debug, FromZeroes, FromBytes)]
+#[derive(Debug, FromBytes, Immutable)]
 pub struct MmapCmd {
     pub session_id: u32,
     pub flags: u32,
@@ -205,7 +205,7 @@ pub struct MmapCmd {
 }
 
 #[repr(C)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, Immutable, IntoBytes)]
 pub struct MmapResp {
     hdr: RespHeader,
     driver_addr: u64,
@@ -223,13 +223,13 @@ impl MmapResp {
 }
 
 #[repr(C)]
-#[derive(Debug, FromZeroes, FromBytes)]
+#[derive(Debug, FromBytes, Immutable)]
 pub struct MunmapCmd {
     pub driver_addr: u64,
 }
 
 #[repr(C)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, Immutable, IntoBytes)]
 pub struct MunmapResp {
     hdr: RespHeader,
 }
@@ -247,7 +247,7 @@ pub const VIRTIO_MEDIA_EVENT_DQBUF: u32 = 1;
 pub const VIRTIO_MEDIA_EVENT_EVENT: u32 = 2;
 
 #[repr(C)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, Immutable, IntoBytes)]
 pub struct EventHeader {
     event: u32,
     session_id: u32,
@@ -260,7 +260,7 @@ impl EventHeader {
 }
 
 #[repr(C)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, Immutable, IntoBytes)]
 pub struct ErrorEvent {
     hdr: EventHeader,
     errno: i32,
