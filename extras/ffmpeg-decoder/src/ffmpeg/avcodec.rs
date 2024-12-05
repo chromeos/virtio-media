@@ -63,6 +63,8 @@ pub struct AvCodec(&'static ffi::AVCodec);
 
 /// SAFETY: `AVCodec` is static and thus safe to share.
 unsafe impl Send for AvCodec {}
+/// SAFETY:  Safe to `Sync` because none of `AVCodec` methods can ever change its state.
+unsafe impl Sync for AvCodec {}
 
 #[derive(Debug, ThisError)]
 pub enum AvCodecOpenError {
@@ -468,6 +470,11 @@ impl Iterator for AvPixelFormatIterator {
 /// A codec context from which decoding can be performed.
 pub struct AvCodecContext(*mut ffi::AVCodecContext);
 
+/// SAFETY: safe because mutable pointers are exclusive and valid (implicit lifetime annotation).
+unsafe impl Send for AvCodecContext {}
+/// SAFETY: safe because it does not allow mutable aliasing.
+unsafe impl Sync for AvCodecContext {}
+
 impl Drop for AvCodecContext {
     fn drop(&mut self) {
         // SAFETY:
@@ -747,6 +754,11 @@ pub struct AvPacket<'a> {
     _buffer_data: PhantomData<&'a ()>,
 }
 
+/// SAFETY: safe because data in 'AvPacket' is valid, and thus safe to send its reference.
+unsafe impl<'a> Send for AvPacket<'a> {}
+/// SAFETY: safe because it does not allow mutable aliasing.
+unsafe impl<'a> Sync for AvPacket<'a> {}
+
 impl<'a> Drop for AvPacket<'a> {
     fn drop(&mut self) {
         // SAFETY:
@@ -834,6 +846,11 @@ impl<'a> AvPacket<'a> {
 /// An owned AVFrame, i.e. one decoded frame from libavcodec that can be converted into a
 /// destination buffer.
 pub struct AvFrame(*mut ffi::AVFrame);
+
+/// SAFETY: safe because mutable pointers are exclusive and valid (implicit lifetime annotation).
+unsafe impl Send for AvFrame {}
+/// SAFETY: safe because it does not allow mutable aliasing.
+unsafe impl Sync for AvFrame {}
 
 /// A builder for AVFrame that allows specifying buffers and image metadata.
 pub struct AvFrameBuilder(AvFrame);

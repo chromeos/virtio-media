@@ -21,6 +21,11 @@ pub struct SwConverter {
     dst_pix_format: ffi::AVPixelFormat,
 }
 
+/// SAFETY: safe because mutable pointers are exclusive and valid (implicit lifetime annotation).
+unsafe impl Send for SwConverter {}
+/// SAFETY: safe because it does not allow mutable aliasing.
+unsafe impl Sync for SwConverter {}  
+
 #[derive(Debug, ThisError)]
 pub enum ConversionError {
     #[error("AvFrame's format {frame} does not match converter {converter} configuration")]

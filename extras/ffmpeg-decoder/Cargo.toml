@@ -13,5 +13,5 @@ thiserror = "1.0"
 virtio-media = { path = "../../device" }
 
 [build-dependencies]
-bindgen = "0.63"
+bindgen = "0.70.1"
 pkg-config = "0.3"

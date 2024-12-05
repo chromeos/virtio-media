@@ -1104,8 +1104,10 @@ where
         )
         .map_err(|e| (e.into_errno()))?;
 
-        let bufs_range = create_bufs.index..(create_bufs.index + create_bufs.count);
-        self.update_mmap_offsets(session, queue, bufs_range);
+        if count > 0 {
+            let bufs_range = create_bufs.index..(create_bufs.index + create_bufs.count);
+            self.update_mmap_offsets(session, queue, bufs_range);
+        }
 
         Ok(create_bufs)
     }

@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use pkg_config::Config;
 
 fn main() {
+    let mut include_paths = HashSet::new();
     // Skip building dependencies when generating documents.
     if std::env::var("CARGO_DOC").is_ok() {
         return;
@@ -23,21 +25,36 @@ fn main() {
     }
 
     // Match all ffmpeg 6.0+ versions.
-    Config::new()
-        .atleast_version("60")
-        .probe("libavcodec")
-        .unwrap();
-    Config::new()
-        .atleast_version("58")
-        .probe("libavutil")
-        .unwrap();
-    Config::new()
-        .atleast_version("7")
-        .probe("libswscale")
-        .unwrap();
+    include_paths.extend(
+        Config::new()
+            .atleast_version("60")
+            .probe("libavcodec")
+            .unwrap()
+            .include_paths,
+    );
+    include_paths.extend(
+        Config::new()
+            .atleast_version("58")
+            .probe("libavutil")
+            .unwrap()
+            .include_paths,
+    );
+    include_paths.extend(
+        Config::new()
+            .atleast_version("7")
+            .probe("libswscale")
+            .unwrap()
+            .include_paths,
+    );
+
+    let clang_args = include_paths
+        .iter()
+        .map(|i| format!("-I{}", i.display()))
+        .collect::<Vec<_>>();
 
     let bindings = bindgen::Builder::default()
         .header("src/bindings.h")
+        .clang_args(clang_args)
         .allowlist_function("av_.*")
         .allowlist_function("avcodec_.*")
         .allowlist_function("sws_.*")
