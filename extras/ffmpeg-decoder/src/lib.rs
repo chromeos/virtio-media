@@ -404,7 +404,10 @@ impl FfmpegDecoderSession {
                     false => context.jobs.push_front(next_job),
                     true => self
                         .events
-                        .queue_event(VideoDecoderBackendEvent::InputBufferDone(*input_index))
+                        .queue_event(VideoDecoderBackendEvent::InputBufferDone {
+                            buffer_id: *input_index,
+                            error: 0
+                        })
                         .map_err(TrySendInputError::EventQueue)?,
                 }
 

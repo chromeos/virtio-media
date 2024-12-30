@@ -109,7 +109,11 @@ pub enum VideoDecoderBackendEvent {
     /// [`VideoDecoderBackendSession::current_format`].
     StreamFormatChanged,
     /// Sent whenever an `OUTPUT` buffer is done processing and can be reused.
-    InputBufferDone(u32),
+    InputBufferDone {
+        buffer_id: u32,
+        /// If error != 0, indicate the error flag on the corresponding v4l2_buffer
+        error: i32,
+    },
     /// Sent whenever a decoded frame is ready on the `CAPTURE` queue.
     FrameCompleted {
         buffer_id: u32,
@@ -385,6 +389,13 @@ pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
 
     /// Adapter-specific data.
     backend_session: S,
+
+    /// The buffer-flag LAST has at least two different interpretations: Generally
+    /// it signals the end of the stream, however, during a format change sequence it
+    /// marks the transition point from the previous to the new sequence. We keep
+    /// track of pending format changes here to avoid signalling EOS if the incoming
+    /// buffer's LAST flag is just marking the completion of the format change.
+    format_change_pending: bool,
 }
 
 impl<S: VideoDecoderBackendSession> VirtioMediaDeviceSession for VideoDecoderSession<S> {
@@ -444,17 +455,18 @@ impl<S: VideoDecoderBackendSession> VideoDecoderSession<S> {
     ///
     /// In the decoder device, we need to keep them until both queues are streaming. Same applies
     /// to input buffers BTW.
-    fn try_send_pending_output_buffers(&mut self) {
+    fn try_send_pending_output_buffers(&mut self) -> IoctlResult<()> {
         if !self.state.is_output_streaming() {
-            return;
+            return Ok(());
         }
 
         for i in self.pending_output_buffers.drain(..) {
             let buffer = self.output_buffers.get_mut(i as usize).unwrap();
             self.backend_session
-                .use_as_output(buffer.index(), &mut buffer.backing)
-                .unwrap();
+                .use_as_output(buffer.index(), &mut buffer.backing)?;
         }
+
+        Ok(())
     }
 }
 
@@ -597,6 +609,7 @@ where
             eos_subscribed: false,
             crop_rectangle: CropRectangle::Settable(v4l2r::Rect::new(0, 0, 0, 0)),
             colorspace: Default::default(),
+            format_change_pending: false,
         })
     }
 
@@ -615,6 +628,8 @@ where
                 }
             }
         }
+
+        self.backend.close_session(session.backend_session);
     }
 
     fn do_ioctl(
@@ -678,13 +693,17 @@ where
     fn process_events(&mut self, session: &mut Self::Session) -> Result<(), i32> {
         let has_event = if let Some(event) = session.backend_session.next_event() {
             match event {
-                VideoDecoderBackendEvent::InputBufferDone(id) => {
+                VideoDecoderBackendEvent::InputBufferDone { buffer_id: id, error } => {
                     let Some(buffer) = session.input_buffers.get_mut(id as usize) else {
                         log::error!("no matching OUTPUT buffer with id {} to process event", id);
                         return Ok(());
                     };
 
                     buffer.v4l2_buffer.clear_flags(BufferFlags::QUEUED);
+
+                    if error != 0 {
+                        buffer.v4l2_buffer.set_flags(BufferFlags::ERROR);
+                    }
 
                     self.event_queue
                         .send_event(V4l2Event::DequeueBuffer(DequeueBufferEvent::new(
@@ -714,6 +733,8 @@ where
                                 },
                             )))
                     }
+
+                    session.format_change_pending = true;
                 }
                 VideoDecoderBackendEvent::FrameCompleted {
                     buffer_id,
@@ -745,15 +766,30 @@ where
                             buffer.v4l2_buffer.clone(),
                         )));
 
-                    if is_last && session.eos_subscribed {
-                        self.event_queue
-                            .send_event(V4l2Event::Event(SessionEvent::new(
-                                session.id,
-                                bindings::v4l2_event {
-                                    type_: bindings::V4L2_EVENT_EOS,
-                                    ..Default::default()
-                                },
-                            )))
+                    if is_last {
+                        if session.format_change_pending {
+                            // The end of the format-change sequence is also
+                            // signaled via a buffer marked "LAST", but this is
+                            // not to be interpreted as the end of the stream.
+                            session.format_change_pending = false;
+
+                            // TODO: If a client (probably unaware of or unable
+                            // to deal with dynamic format changes) attempts to
+                            // DQBUF buffers after the LAST marker (without going
+                            // through the dynamic resolution change sequence),
+                            // we are supposed to return -EPIPE according to
+                            // https://docs.kernel.org/userspace-api/media/v4l/dev-decoder.html
+                            // Section 4.5.1.9 Dynamic Resolution Change
+                        } else if session.eos_subscribed {
+                            self.event_queue
+                                .send_event(V4l2Event::Event(SessionEvent::new(
+                                    session.id,
+                                    bindings::v4l2_event {
+                                        type_: bindings::V4L2_EVENT_EOS,
+                                        ..Default::default()
+                                    },
+                                )))
+                        }
                     }
                 }
             }
@@ -1043,9 +1079,7 @@ where
             // TODO: start queueing pending buffers?
         }
 
-        session.try_send_pending_output_buffers();
-
-        Ok(())
+        session.try_send_pending_output_buffers()
     }
 
     fn streamoff(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
@@ -1210,7 +1244,7 @@ where
                 let res = v4l2_buffer.clone();
 
                 session.pending_output_buffers.push(buffer.index());
-                session.try_send_pending_output_buffers();
+                session.try_send_pending_output_buffers()?;
 
                 Ok(res)
             }
@@ -1261,7 +1295,7 @@ where
                             .backend_session
                             .streaming_state(QueueDirection::Capture, true);
                     }
-                    session.try_send_pending_output_buffers();
+                    session.try_send_pending_output_buffers()?;
                 }
             }
             DecoderCmd::Pause { .. } => {
