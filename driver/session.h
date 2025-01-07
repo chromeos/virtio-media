@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+ */
 
 /*
  * Definitions of virtio-media session related structures.
  *
- * Copyright (c) 2023-2024 Google LLC.
+ * Copyright (c) 2023-2025 Google LLC.
  */
 
 #ifndef __VIRTIO_MEDIA_SESSION_H
@@ -21,12 +21,6 @@
  * to contain anything we need.
  */
 #define VIRTIO_SHADOW_BUF_SIZE 0x4000
-
-struct virtio_media_sg_entry {
-	u64 start;
-	u32 len;
-	u32 __padding;
-};
 
 /**
  * struct virtio_media_buffer - Current state of a given buffer.
@@ -47,7 +41,7 @@ struct virtio_media_buffer {
  * @streaming: Whether the queue is currently streaming.
  * @allocated_bufs: How many buffers are currently allocated.
  * @is_capture_last: set to true when the last buffer has been received on a
- * 	capture queue, so we can return -EPIPE on subsequent DQBUF requests.
+ *                   capture queue, so we can return -EPIPE on subsequent DQBUF requests.
  * @buffers: Buffer state array of size @allocated_bufs.
  * @queued_bufs: How many buffers are currently queued at the host.
  * @pending_dqbufs: Buffers that are available for being dequeued.
@@ -63,11 +57,13 @@ struct virtio_media_queue_state {
 };
 
 /**
- * struct virtio_media_session - A session on a virtio_media device, created whenever the device is opened.
+ * struct virtio_media_session - A session on a virtio_media device, created
+ * whenever the device is opened.
  *
  * @fh: file handler for the session.
  * @id: session ID used to communicate with the device.
- * @nonblocking_dequeue: whether dequeue should block or not (nonblocking if file opened with O_NONBLOCK).
+ * @nonblocking_dequeue: whether dequeue should block or not (nonblocking if
+ *                       file opened with O_NONBLOCK).
  * @uses_mplane: whether the queues for this session use the MPLANE API or not.
  * @cmd: union of session-related commands. Each session can have one command currently running.
  * @resp: union of session-related responses.

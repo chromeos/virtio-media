@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0+ */
 
 /*
  * Scatterlist filler helpers for virtio-media.
  *
- * Copyright (c) 2023-2024 Google LLC.
+ * Copyright (c) 2023-2025 Google LLC.
  */
 
 #ifndef __VIRTIO_MEDIA_SCATTERLIST_FILLER_H
@@ -20,7 +20,7 @@
  * @num_descs: number of entries in descs.
  * @cur_desc: next descriptor to be written in descs.
  * @shadow_buffer: pointer to a shadow buffer where elements that cannot be
- * 	mapped directly into the scatterlist get copied.
+ *                 mapped directly into the scatterlist get copied.
  * @shadow_buffer_size: size of shadow_buffer.
  * @shadow_buffer_pos: current position in shadow_buffer.
  * @sgs: list of scatterlist pointers to eventually pass to virtio.
@@ -72,7 +72,8 @@ int scatterlist_filler_add_data(struct scatterlist_filler *filler, void *data,
 /**
  * scatterlist_filler_add_buffer - Add a v4l2_buffer and its planes to the list.
  *
- * The buffer and its pointers will be either directly mapped, or copied into the shadow buffer to be mapped there.
+ * The buffer and its pointers will be either directly mapped, or copied into
+ * the shadow buffer to be mapped there.
  */
 int scatterlist_filler_add_buffer(struct scatterlist_filler *filler,
 				  struct v4l2_buffer *buffer);
@@ -88,7 +89,8 @@ int scatterlist_filler_add_buffer_userptr(struct scatterlist_filler *filler,
 /**
  * scatterlist_filler_add_ext_ctrls - Add a v4l2_ext_controls and its controls to the list.
  *
- * The controls will be either directly mapped, or copied into the shadow buffer to be mapped there.
+ * The controls will be either directly mapped, or copied into the shadow
+ * buffer to be mapped there.
  *
  * For controls with pointer data, the data is always directly mapped, not copied.
  */
@@ -97,7 +99,8 @@ int scatterlist_filler_add_ext_ctrls(struct scatterlist_filler *filler,
 				     bool add_userptrs);
 
 /**
- * scatterlist_filler_retrieve_data - Retrieve data written by the device on the shadow buffer, if needed.
+ * scatterlist_filler_retrieve_data - Retrieve data written by the device on
+ * the shadow buffer, if needed.
  *
  * If the shadow buffer is pointed to by @sg, copy its content back into @data.
  */
@@ -106,7 +109,8 @@ int scatterlist_filler_retrieve_data(struct virtio_media_session *session,
 				     size_t len);
 
 /**
- * scatterlist_filler_retrieve_buffer - Retrieve buffer data written by the device on the shadow buffer, if needed.
+ * scatterlist_filler_retrieve_buffer - Retrieve buffer data written by the
+ * device on the shadow buffer, if needed.
  *
  * If the shadow buffer is pointed to by @sg, copy its content back into @buffer.
  */
@@ -116,7 +120,8 @@ int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
 				       size_t num_planes);
 
 /**
- * scatterlist_filler_retrieve_ext_ctrls - Retrieve controls data written by the device on the shadow buffer, if needed.
+ * scatterlist_filler_retrieve_ext_ctrls - Retrieve controls data written by
+ * the device on the shadow buffer, if needed.
  *
  * If the shadow buffer is pointed to by @sg, copy its content back into @ctrls.
  */

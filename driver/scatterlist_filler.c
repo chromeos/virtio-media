@@ -3,7 +3,7 @@
 /*
  * Scatterlist filler helpers for virtio-media.
  *
- * Copyright (c) 2023-2024 Google LLC.
+ * Copyright (c) 2023-2025 Google LLC.
  */
 
 #include <linux/scatterlist.h>
@@ -18,7 +18,7 @@
  * host into the shadow buffer (instead of trying to map the source memory into
  * the SG table directly).
  */
-static bool always_use_shadow_buffer = false;
+static bool always_use_shadow_buffer;
 module_param(always_use_shadow_buffer, bool, 0660);
 
 /* Convert a V4L2 IOCTL into the IOCTL code we can give to the host */
@@ -37,7 +37,8 @@ int scatterlist_filler_add_sg(struct scatterlist_filler *filler,
 int scatterlist_filler_add_data(struct scatterlist_filler *filler, void *data,
 				size_t len)
 {
-	BUG_ON(len == 0);
+	if (len == 0)
+		return 0;
 
 	if (filler->cur_sg >= filler->num_sgs)
 		return -ENOMEM;
@@ -47,7 +48,7 @@ int scatterlist_filler_add_data(struct scatterlist_filler *filler, void *data,
 	filler->sgs[filler->cur_sg] = &filler->descs[filler->cur_desc];
 
 	if (!always_use_shadow_buffer && virt_addr_valid(data + len)) {
-		/* 
+		/*
 		 * If "data" is in the 1:1 physical memory mapping then we can
 		 * use a single SG entry and avoid copying.
 		 */
@@ -62,7 +63,7 @@ int scatterlist_filler_add_data(struct scatterlist_filler *filler, void *data,
 	} else if (!always_use_shadow_buffer && is_vmalloc_addr(data)) {
 		int prev_pfn = -2;
 
-		/* 
+		/*
 		 * If "data" has been vmalloc'ed, we need one at most entry per
 		 * memory page but can avoid copying.
 		 */
@@ -152,7 +153,8 @@ int scatterlist_filler_retrieve_data(struct virtio_media_session *session,
 	void *shadow_buf = session->shadow_buf;
 	void *kaddr = pfn_to_kaddr(page_to_pfn(sg_page(sg))) + sg->offset;
 
-	BUG_ON(len == 0);
+	if (len == 0)
+		return 0;
 
 	/*
 	 * If our SG entry points inside the shadow buffer, copy the data back to its
@@ -163,7 +165,8 @@ int scatterlist_filler_retrieve_data(struct virtio_media_session *session,
 		if (kaddr + len >= shadow_buf + VIRTIO_SHADOW_BUF_SIZE)
 			return -EINVAL;
 
-		BUG_ON(sg->length != len);
+		if (sg->length != len)
+			return -EINVAL;
 
 		memcpy(data, kaddr, len);
 	}
@@ -186,9 +189,8 @@ int scatterlist_filler_retrieve_buffer(struct virtio_media_session *session,
 	int ret;
 
 	/* Keep data that will be overwritten but that we need to check later */
-	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
+	if (V4L2_TYPE_IS_MULTIPLANAR(b->type))
 		planes = b->m.planes;
-	}
 
 	ret = scatterlist_filler_retrieve_data(session, buffer_sgs[i++], b,
 					       sizeof(*b));
@@ -262,8 +264,8 @@ static int prepare_userptr_to_host(struct scatterlist_filler *filler,
 	framevec = vb2_create_framevec(userptr, length, true);
 	if (IS_ERR(framevec)) {
 		if (PTR_ERR(framevec) != -EFAULT) {
-			printk("error creating frame vector for userptr 0x%lx, length 0x%lx: %ld\n",
-			       userptr, length, PTR_ERR(framevec));
+			printk("error %ld creating frame vector for userptr 0x%lx, length 0x%lx\n",
+			       PTR_ERR(framevec), userptr, length);
 		} else {
 			/* -EINVAL is expected in case of invalid userptr. */
 			framevec = ERR_PTR(-EINVAL);
@@ -300,6 +302,7 @@ static int prepare_userptr_to_host(struct scatterlist_filler *filler,
 
 	for_each_sgtable_sg(&sg_table, sg_iter, i) {
 		struct virtio_media_sg_entry *sg_entry = &(*sg_list)[i];
+
 		sg_entry->start = sg_phys(sg_iter);
 		sg_entry->len = sg_iter->length;
 	}
@@ -383,6 +386,7 @@ int scatterlist_filler_add_buffer_userptr(struct scatterlist_filler *filler,
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		for (i = 0; i < b->length; i++) {
 			struct v4l2_plane *plane = &b->m.planes[i];
+
 			if (b->memory == V4L2_MEMORY_USERPTR &&
 			    plane->length > 0) {
 				ret = scatterlist_filler_add_userptr(
@@ -429,6 +433,7 @@ int scatterlist_filler_add_ext_ctrls(struct scatterlist_filler *filler,
 	/* Pointers to user memory in individual controls */
 	for (i = 0; i < ctrls->count; i++) {
 		struct v4l2_ext_control *ctrl = &ctrls->controls[i];
+
 		if (ctrl->size > 0) {
 			ret = scatterlist_filler_add_userptr(
 				filler, (unsigned long)ctrl->ptr, ctrl->size);

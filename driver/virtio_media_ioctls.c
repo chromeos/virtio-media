@@ -3,7 +3,7 @@
 /*
  * Ioctls implementations for the virtio-media driver.
  *
- * Copyright (c) 2023-2024 Google LLC.
+ * Copyright (c) 2023-2025 Google LLC.
  */
 
 #include <linux/virtio_config.h>
@@ -15,8 +15,8 @@
 #include "virtio_media.h"
 
 /**
- * Send an ioctl that has no driver payload, but expects a reponse from the host (i.e. an
- * ioctl specified with _IOR).
+ * Send an ioctl that has no driver payload, but expects a response from the
+ * host (i.e. an ioctl specified with _IOR).
  *
  * Returns 0 in case of success, or a negative error code.
  */
@@ -296,7 +296,10 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl_code,
 		return ret;
 	}
 
-	/* TODO ideally we should not be doing this twice, but the scatterlist may screw us up here? */
+	/*
+	 * TODO: ideally we should not be doing this twice, but the scatterlist
+	 * may screw us up here?
+	 */
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		b->m.planes = planes_backup;
 		if (b->length > length_backup)
@@ -373,7 +376,7 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh,
 	if (ctrls->count != num_ctrls) {
 		v4l2_err(
 			&vv->v4l2_dev,
-			"device returned a number of extended controls different than submitted\n");
+			"device returned a number of controls different than the one submitted\n");
 	}
 	if (ctrls->count > num_ctrls)
 		return -ENOSPC;
@@ -426,9 +429,8 @@ static void virtio_media_clear_queue(struct virtio_media *vv,
 	mutex_unlock(&session->dqbufs_lock);
 
 	/* All buffers are now dequeued. */
-	for (i = 0; i < queue->allocated_bufs; i++) {
+	for (i = 0; i < queue->allocated_bufs; i++)
 		queue->buffers[i].buffer.flags = 0;
-	}
 
 	queue->queued_bufs = 0;
 	queue->streaming = false;
@@ -439,24 +441,24 @@ static void virtio_media_clear_queue(struct virtio_media *vv,
  * Macros suitable for defining ioctls with a constant size payload.
  */
 
-#define SIMPLE_WR_IOCTL(name, ioctl, type)                            \
+#define SIMPLE_WR_IOCTL(name, ioctl, payload_t)                       \
 	static int virtio_media_##name(struct file *file, void *fh,   \
-				       type *payload)                 \
+				       payload_t *payload)            \
 	{                                                             \
 		return virtio_media_send_wr_ioctl(fh, ioctl, payload, \
 						  sizeof(*payload),   \
 						  sizeof(*payload));  \
 	}
-#define SIMPLE_R_IOCTL(name, ioctl, type)                            \
+#define SIMPLE_R_IOCTL(name, ioctl, payload_t)                       \
 	static int virtio_media_##name(struct file *file, void *fh,  \
-				       type *payload)                \
+				       payload_t *payload)           \
 	{                                                            \
 		return virtio_media_send_r_ioctl(fh, ioctl, payload, \
 						 sizeof(*payload));  \
 	}
-#define SIMPLE_W_IOCTL(name, ioctl, type)                            \
+#define SIMPLE_W_IOCTL(name, ioctl, payload_t)                       \
 	static int virtio_media_##name(struct file *file, void *fh,  \
-				       type *payload)                \
+				       payload_t *payload)           \
 	{                                                            \
 		return virtio_media_send_w_ioctl(fh, ioctl, payload, \
 						 sizeof(*payload));  \
@@ -537,15 +539,14 @@ static int virtio_media_querycap(struct file *file, void *fh,
 	struct video_device *video_dev = video_devdata(file);
 	struct virtio_media *vv = to_virtio_media(video_dev);
 
-	/* TODO add proper number? */
-	strncpy(cap->bus_info, "platform:virtio-media0", sizeof(cap->bus_info));
+	/* TODO: add proper number? */
+	strscpy(cap->bus_info, "platform:virtio-media0");
 
-	if (!driver_name) {
-		strncpy(cap->driver, VIRTIO_MEDIA_DEFAULT_DRIVER_NAME,
-			sizeof(cap->driver));
-	} else {
-		strncpy(cap->driver, driver_name, sizeof(cap->driver));
-	}
+	if (!driver_name)
+		strscpy(cap->driver, VIRTIO_MEDIA_DEFAULT_DRIVER_NAME);
+	else
+		strscpy(cap->driver, driver_name);
+
 	virtio_cread_bytes(vv->virtio_dev, 8, cap->card, sizeof(cap->card));
 
 	cap->capabilities = video_dev->device_caps | V4L2_CAP_DEVICE_CAPS;
@@ -615,9 +616,8 @@ virtio_media_subscribe_event(struct v4l2_fh *fh,
 	 * Subscribing to an event may result in that event being signaled
 	 * immediately. Process all pending events to make sure we don't miss it.
 	 */
-	if (sub->flags & V4L2_EVENT_SUB_FL_SEND_INITIAL) {
+	if (sub->flags & V4L2_EVENT_SUB_FL_SEND_INITIAL)
 		virtio_media_process_events(vv);
-	}
 
 	return 0;
 }
@@ -670,9 +670,8 @@ static int virtio_media_streamoff(struct file *file, void *fh,
 	struct virtio_media_session *session = fh_to_session(fh);
 	int ret;
 
-	if (i > VIRTIO_MEDIA_LAST_QUEUE) {
+	if (i > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
-	}
 
 	ret = virtio_media_send_w_ioctl(fh, VIDIOC_STREAMOFF, &i, sizeof(i));
 	if (ret < 0)
@@ -707,9 +706,8 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	queue = &session->queues[b->type];
 
 	/* REQBUFS(0) is an implicit STREAMOFF. */
-	if (b->count == 0) {
+	if (b->count == 0)
 		virtio_media_clear_queue(vv, session, queue);
-	}
 
 	vfree(queue->buffers);
 	queue->buffers = NULL;
@@ -717,9 +715,8 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	if (b->count > 0) {
 		queue->buffers =
 			vzalloc(sizeof(struct virtio_media_buffer) * b->count);
-		if (!queue->buffers) {
+		if (!queue->buffers)
 			return -ENOMEM;
-		}
 	}
 
 	queue->allocated_bufs = b->count;
@@ -728,9 +725,8 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	 * If a multiplanar queue is successfully used here, this means
 	 * we are using the multiplanar interface.
 	 */
-	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
+	if (V4L2_TYPE_IS_MULTIPLANAR(b->type))
 		session->uses_mplane = true;
-	}
 
 	/* TODO remove once we support DMABUFs */
 	b->capabilities &= ~V4L2_BUF_CAP_SUPPORTS_DMABUF;
@@ -750,13 +746,13 @@ static int virtio_media_querybuf(struct file *file, void *fh,
 	if (ret)
 		return ret;
 
-	if (b->type > VIRTIO_MEDIA_LAST_QUEUE) {
+	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
-	}
+
 	queue = &session->queues[b->type];
-	if (b->index >= queue->allocated_bufs) {
+	if (b->index >= queue->allocated_bufs)
 		return -EINVAL;
-	}
+
 	buffer = &queue->buffers[b->index];
 	/* Set the DONE flag if the buffer is waiting in our own dequeue queue. */
 	b->flags |= (buffer->buffer.flags & V4L2_BUF_FLAG_DONE);
@@ -917,14 +913,14 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 		return -EINVAL;
 	} else if (!queue->streaming) {
 		return -EINVAL;
-	} else {
-		mutex_unlock(&vv->vlock);
-		ret = wait_event_interruptible(session->dqbufs_wait,
-					       !list_empty(buffer_queue));
-		mutex_lock(&vv->vlock);
-		if (ret)
-			return -EINTR;
 	}
+
+	mutex_unlock(&vv->vlock);
+	ret = wait_event_interruptible(session->dqbufs_wait,
+				       !list_empty(buffer_queue));
+	mutex_lock(&vv->vlock);
+	if (ret)
+		return -EINTR;
 
 	mutex_lock(&session->dqbufs_lock);
 	dqbuf = list_first_entry(buffer_queue, struct virtio_media_buffer,
@@ -936,7 +932,8 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 	dqbuf->buffer.flags &= ~V4L2_BUF_FLAG_DONE;
 
 	if (is_multiplanar) {
-		size_t nb_planes = min(b->length, (u32)VIDEO_MAX_PLANES);
+		size_t nb_planes = min_t(u32, b->length, VIDEO_MAX_PLANES);
+
 		memcpy(b->m.planes, dqbuf->planes,
 		       nb_planes * sizeof(struct v4l2_plane));
 		planes_backup = b->m.planes;
@@ -944,13 +941,11 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 
 	memcpy(b, &dqbuf->buffer, sizeof(*b));
 
-	if (is_multiplanar) {
+	if (is_multiplanar)
 		b->m.planes = planes_backup;
-	}
 
-	if (V4L2_TYPE_IS_CAPTURE(b->type) && b->flags & V4L2_BUF_FLAG_LAST) {
+	if (V4L2_TYPE_IS_CAPTURE(b->type) && b->flags & V4L2_BUF_FLAG_LAST)
 		queue->is_capture_last = true;
-	}
 
 	return 0;
 }

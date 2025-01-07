@@ -3,7 +3,7 @@
 /*
  * Virtio-media driver.
  *
- * Copyright (c) 2023-2024 Google LLC.
+ * Copyright (c) 2023-2025 Google LLC.
  */
 
 #include <linux/delay.h>
@@ -34,11 +34,11 @@
 #include "session.h"
 #include "virtio_media.h"
 
-#define VIRTIO_MEDIA_NUM_EVENT_BUFS 16
-
 #ifndef VIRTIO_ID_MEDIA
 #define VIRTIO_ID_MEDIA 48
 #endif
+
+#define VIRTIO_MEDIA_NUM_EVENT_BUFS 16
 
 /* ID of the SHM region into which MMAP buffer will be mapped. */
 #define VIRTIO_MEDIA_SHM_MMAP 0
@@ -50,7 +50,7 @@
  * some drivers. When proxying these directly from the host, this allows it to
  * apply them as needed.
  */
-char *driver_name = NULL;
+char *driver_name;
 module_param(driver_name, charp, 0660);
 
 /**
@@ -75,9 +75,8 @@ virtio_media_session_alloc(struct virtio_media *vv, u32 id,
 
 	ret = sg_alloc_table(&session->command_sgs, DESC_CHAIN_MAX_LEN,
 			     GFP_KERNEL);
-	if (ret) {
+	if (ret)
 		goto err_payload_sgs;
-	}
 
 	session->id = id;
 	session->nonblocking_dequeue = nonblocking_dequeue;
@@ -224,9 +223,9 @@ static int virtio_media_kick_command(struct virtio_media *vv,
 		*resp_len = cb_param.resp_len;
 
 	if (in_sgs > 0) {
-		/* 
-		 * If we expect a response, make sure we have at least a response header - anything shorter is
-		 * invalid.
+		/*
+		 * If we expect a response, make sure we have at least a
+		 * response header - anything shorter is invalid.
 		 */
 		if (cb_param.resp_len < sizeof(*resp_header)) {
 			v4l2_err(&vv->v4l2_dev,
@@ -245,6 +244,7 @@ static int virtio_media_kick_command(struct virtio_media *vv,
 
 /**
  * Send a command to the host and wait for its response.
+ *
  * @vv: the virtio_media device to communicate with.
  * @minimum_resp_len: the minimum length of the response expected by the caller
  * in case the command succeeded. Anything shorter than that will result in an
@@ -355,8 +355,7 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 		if (dqbuf->buffer.length > VIDEO_MAX_PLANES) {
 			v4l2_err(
 				&vv->v4l2_dev,
-				"invalid number of planes received from host for "
-				"a multiplanar buffer\n");
+				"invalid number of planes received from host for a multiplanar buffer\n");
 			return;
 		}
 		for (i = 0; i < dqbuf->buffer.length; i++) {
@@ -642,7 +641,7 @@ static void virtio_media_vma_close(struct vm_area_struct *vma)
 	mutex_unlock(&vv->vlock);
 }
 
-static struct vm_operations_struct virtio_media_vm_ops = {
+static const struct vm_operations_struct virtio_media_vm_ops = {
 	.close = virtio_media_vma_close,
 };
 
@@ -764,9 +763,8 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	vv->event_buffer = devm_kzalloc(
 		dev, VIRTIO_MEDIA_EVENT_MAX_SIZE * VIRTIO_MEDIA_NUM_EVENT_BUFS,
 		GFP_KERNEL);
-	if (!vv->event_buffer) {
+	if (!vv->event_buffer)
 		return -ENOMEM;
-	}
 
 	mutex_init(&vv->bufs_lock);
 
@@ -831,9 +829,8 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	for (i = 0; i < VIRTIO_MEDIA_NUM_EVENT_BUFS; i++) {
 		ret = virtio_media_send_event_buffer(
 			vv, vv->event_buffer + VIRTIO_MEDIA_EVENT_MAX_SIZE * i);
-		if (ret) {
+		if (ret)
 			goto send_event_buffer;
-		}
 	}
 
 	return 0;
