@@ -7,7 +7,6 @@ virtual host device through a Debian guest image using the
 Through this document, we will build and run the following components:
 
 - A guest Linux kernel with virtio-media support enabled
-- The virtio-media guest kernel module
 - A Debian guest image with v4l-utils installed
 - Crosvm with virtio-media support
 
@@ -15,72 +14,51 @@ Through this document, we will build and run the following components:
 
 - A C compiler toolchain
 - The [Rust toolchain](https://rustup.rs/) version 1.75 or later
-- The `virt-builder utility` (usually available in the `libguestfs-tools`
-  package)
+- The `virt-builder` utility (usually available in the `guestfs-tools` package)
+- The `virt-copy-out` and `virt-copy-in` tools (usually available in the
+  `libguestfs` package)
 
 ## Directory Setup
 
 Create a workspace directory and get into it:
 
-```console
+```sh
 mkdir virtio_media_playground
 cd virtio_media_playground
 ```
 
 This directory can be erased in order to remove everything we will build here.
 
-## Guest Kernel Image
+## Guest Kernel Image with virtio-media Built-in
 
-The virtio-media guest driver works with a regular mainline Linux kernel, as
-long as the required virtio and V4L2 options are enabled.
+1. Clone the kernel repository on the right branch:
 
-1. Clone the kernel repository:
-
-   ```console
-   git clone --branch virtio-media --depth=2 https://github.com/Gnurou/linux
+   ```sh
+   git clone --branch b4/virtio-media --depth=2 https://github.com/Gnurou/linux
    cd linux
    ```
 
-   This branch is just a regular Linux mainline release with a commit on top
-   that adds the configuration we will use.
+   This branch is just a regular Linux mainline release with a few commits on
+   top that adds the configuration we will use, and the virtio-media driver.
 
 2. Build the kernel:
 
-   ```console
-   mkdir build_virtio_media
-   make O=build_virtio_media virtio_crosvm_defconfig
-   make O=build_virtio_media -j16 bzImage modules
+   ```sh
+   make virtio_media_defconfig
+   make -j16 bzImage
    ```
 
    (Adjust `-j16` to match your number of CPU cores)
-
-## Virtio-media Guest Kernel Module
-
-1. Clone the virtio-media repository:
-
-   ```console
-   cd ..  # Back to the workspace root
-   git clone https://github.com/chromeos/virtio-media
-   cd virtio-media/driver
-   ```
-
-2. Build the module:
-
-   ```console
-   make -C ../../linux/build_virtio_media/ M=$PWD
-   ```
 
 ## Guest System Image
 
 Create the Debian image:
 
-```console
-cd ../..  # Back to the workspace root
+```sh
+cd ..  # Back to the workspace root
 virt-builder debian-12 \
   --install v4l-utils \
-  --root-password password:"" \
-  --mkdir /root/vmedia \
-  --append-line '/etc/fstab:vmedia /root/vmedia virtiofs'
+  --root-password password:""
 ```
 
 This command does the following:
@@ -88,16 +66,13 @@ This command does the following:
 - Download a Debian 12 image,
 - Install the `v4l-utils` package into it,
 - Set the root password to be empty,
-- Ensures that the shared virtiofs filesystem labeled `vmedia` (that we will use
-  to share the host directory containing the virtio-media kernel module) is
-  mounted into `/root/vmedia`.
 
 ## Crosvm
 
 1. Clone and checkout the crosvm branch containing the work-in-progress
    virtio-media support:
 
-   ```console
+   ```sh
    git clone --depth=1 https://chromium.googlesource.com/crosvm/crosvm
    cd crosvm
    git submodule update --init
@@ -105,7 +80,7 @@ This command does the following:
 
 2. Build the crosvm binary:
 
-   ```console
+   ```sh
    cargo build --release --features "media"
    ```
 
@@ -114,41 +89,33 @@ now are ready to run our VM and try out some virtual media devices!
 
 ## Start the VM
 
-```console
+```sh
 cd ..  # Back to the workspace root
 ./crosvm/target/release/crosvm run \
-  linux/build_virtio_media/arch/x86/boot/bzImage \
+  linux/arch/x86/boot/bzImage \
+  --disable-sandbox \
   --rwdisk debian-12.img \
   -p "root=/dev/vda1" \
-  --shared-dir "$PWD/virtio-media:vmedia:type=fs" \
   --simple-media-device
 ```
 
 This command does the following:
 
-- Start the kernel image we built,
-- Adds the Debian guest image as a virtual disk,
-- Passes the kernel parameter to use this virtual disk as root partition,
-- Shares the folder containing the virtio-media kernel module as a virtiofs
-  filesystem labeled `vmedia`,
-- Adds a simple, dummy virtio-media test device that is entirely emulated in
+- Boot the kernel image we built,
+- Add the Debian guest image as a virtual disk,
+- Pass the kernel parameter to use this virtual disk as root partition,
+- Add a simple, dummy virtio-media test device that is entirely emulated in
   crosvm.
 
 You should see the system booting. After a few seconds, press `<enter>` to get
 the login prompt. Login as `root` with an empty password.
 
-We will now want to insert the `virtio-media` kernel module:
-
-```console
-insmod /root/vmedia/driver/virtio-media.ko
-```
-
 ## Test the Virtual Device
 
 The simple virtio-media device should have been detected and become visible as
-`/dev/video0`. Let's see if it works:
+`/dev/video0` in the guest. Let's see if it works:
 
-```console
+```sh
 v4l2-compliance -d0 -s
 ```
 
@@ -161,7 +128,7 @@ Total for virtio_media device /dev/video0: 54, Succeeded: 54, Failed: 0, Warning
 
 We can also check its supported capture formats:
 
-```console
+```sh
 v4l2-ctl -d0 --list-formats
 ```
 
@@ -176,20 +143,28 @@ ioctl: VIDIOC_ENUM_FMT
 
 And we can also capture frames from it:
 
-```console
-v4l2-ctl -d0 --stream-mmap --stream-count 30 --stream-to /root/vmedia/simple.rgb
+```sh
+v4l2-ctl -d0 --stream-mmap --stream-count 30 --stream-to simple.rgb
 ```
 
 This writes 30 640x480 RGB frames (all filled with a single color) into the
-`simple.rgb` file of our `virtio-media` directory on the host. You can visualize
-the output using a dedicated tool like [YUView](https://github.com/IENT/YUView).
+`simple.rgb` file.
 
 That's enough for this simple example. Next we will see how to proxy a V4L2
 device on the host into the guest. Let's exit the guest:
 
-```console
+```sh
 poweroff
 ```
+
+If you want to visualize the file we generated, copy it out of the disk image:
+
+```sh
+virt-copy-out -a debian-12.img /root/simple.rgb .
+```
+
+You can then view it using a dedicated tool like
+[YUView](https://github.com/IENT/YUView).
 
 ## Proxy a host V4L2 device into a guest
 
@@ -199,7 +174,7 @@ the host, for this example we will assume a regular USB camera using the
 `uvcvideo` driver. With the camera plugged, use `v4l2-ctl` on the host to find
 out the number of the device:
 
-```console
+```sh
 v4l2-ctl -d0 --info
 ```
 
@@ -217,27 +192,21 @@ Then you have found the correct device. If not, replace `-d0` with `-d1`, `-d2`,
 Now that we have found the device, we can start `crosvm` with a proxy device for
 it:
 
-```console
+```sh
 ./crosvm/target/release/crosvm run \
-  linux/build_virtio_media/arch/x86/boot/bzImage \
+  linux/arch/x86/boot/bzImage \
+  --disable-sandbox \
   --rwdisk debian-12.img \
   -p "root=/dev/vda1" \
-  --shared-dir "$PWD/virtio-media:vmedia:type=fs" \
   --v4l2-proxy /dev/video0
 ```
 
 The `/dev/video0` assumes that the `-d0` argument of `v4l2-ctl` returned the
 right device - adjust the argument for the actual device on your host.
 
-With the guest booted, we can insert the `v4l2-media` module again:
+With the guest booted, we can check that our device is indeed recognized:
 
-```console
-insmod /root/vmedia/driver/virtio-media.ko
-```
-
-And check that our device is indeed recognized:
-
-```console
+```sh
 v4l2-ctl -d0 --info
 ```
 
@@ -247,20 +216,26 @@ host, with the exception that the driver name is now `virtio_media`.
 Most USB cameras support streaming into motion-JPEG, so let's try to capture a
 stream:
 
-```console
-v4l2-ctl -d0 --stream-mmap --set-fmt-video pixelformat=MJPG --stream-to /root/vmedia/out.mpg
+```sh
+v4l2-ctl -d0 --stream-mmap --set-fmt-video pixelformat=MJPG --stream-to out.mpg
 ```
 
 Use `Ctrl-C` to stop the capture. The stream has been recorded into the
 directory shared with the host, so let's exit the guest in order to check it
 out:
 
-```console
+```sh
 poweroff
 ```
 
-Then on the host, use your media player of choice to view the captured file:
+Then on the host, copy the file out of the guest image:
 
-```console
-ffplay virtio-media/out.mpg
+```sh
+virt-copy-out -a debian-12.img /root/out.mpg .
+```
+
+And use your media player of choice to play it, e.g.:
+
+```sh
+ffplay out.mpg
 ```
