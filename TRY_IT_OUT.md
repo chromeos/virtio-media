@@ -58,13 +58,14 @@ Create the Debian image:
 cd ..  # Back to the workspace root
 virt-builder debian-12 \
   --install v4l-utils \
+  --install ffmpeg \
   --root-password password:""
 ```
 
 This command does the following:
 
 - Download a Debian 12 image,
-- Install the `v4l-utils` package into it,
+- Install the `v4l-utils` and `ffmpeg` packages into it,
 - Set the root password to be empty,
 
 ## Crosvm
@@ -239,3 +240,122 @@ And use your media player of choice to play it, e.g.:
 ```sh
 ffplay out.mpg
 ```
+
+While this example used a UVC device, other devices (e.g. the `vivid` virtual
+codec device) can also be shared with a guest this way.
+
+## Virtual decoder device backed by FFmpeg
+
+This example shares a virtual decoder device backed by FFmpeg with a guest. This
+device operates entirely in software and thus doesn't require any particular
+hardware on the host, while the guest sees a regular (and seemingly accelerated)
+V4L2 codec device.
+
+You will need the FFmpeg libraries and headers on the host to run this example.
+
+Crosvm needs to be built with more features to support this device:
+
+```sh
+cd crosvm
+cargo build --release --features "video-decoder,media,ffmpeg"
+cd ..
+```
+
+We will also need a media file to decode. Let's download one and copy it into
+the guest image:
+
+```sh
+wget https://test-videos.co.uk/vids/bigbuckbunny/webm/vp9/720/Big_Buck_Bunny_720_10s_1MB.webm
+virt-copy-in -a debian-12.img Big_Buck_Bunny_720_10s_1MB.webm /root/
+```
+
+Then run `crosvm` with the `--media-decoder=ffmpeg` option:
+
+```sh
+./crosvm/target/release/crosvm run \
+  linux/arch/x86/boot/bzImage \
+  --disable-sandbox \
+  --rwdisk debian-12.img \
+  -p "root=/dev/vda1" \
+  --media-decoder=ffmpeg
+```
+
+The guest should then be able to see the media device:
+
+```sh
+v4l2-ctl -d0 --info
+Driver Info:
+        Driver name      : virtio-media
+        Card type        : ffmpeg decoder adapter
+        Bus info         : platform:virtio-media
+        Driver version   : 6.13.0
+        Capabilities     : 0x84204000
+                Video Memory-to-Memory Multiplanar
+                Streaming
+                Extended Pix Format
+                Device Capabilities
+        Device Caps      : 0x04204000
+                Video Memory-to-Memory Multiplanar
+                Streaming
+                Extended Pix Format
+```
+
+Let's use ffmpeg to decode the media file we downloaded into a set of `.png`
+images using our virtual decoder device:
+
+```sh
+ffmpeg -codec:v vp9_v4l2m2m -i Big_Buck_Bunny_720_10s_1MB.webm Big_Buck_Bunny-%03d.png
+```
+
+Now let's quit the guest:
+
+```sh
+poweroff
+```
+
+And on the host, copy one of the 300 `.png` files we generated and open it to
+check it is correctly decoded:
+
+```sh
+virt-copy-out -a debian-12.img /root/Big_Buck_Bunny-001.png .
+xdg-open Big_Buck_Bunny-001.png
+```
+
+## Hardware-accelerated VAAPI decoder device
+
+If you have a decoder supported by VAAPI on your host, you can share it as a
+virtio-media device to a guest.
+
+For this section to work, the `vainfo` command run on your host should return a
+VP9 decoder entry point similar to this:
+
+```console
+VAProfileVP9Profile0            : VAEntrypointVLD
+```
+
+If you can see it, you can try decoding from the guest using the
+VAAPI-acceleration of the host.
+
+Build crosvm with the `vaapi` feature (make sure the `libva` headers are
+installed on the host):
+
+```sh
+cd crosvm
+cargo build --release --features "video-decoder,media,vaapi"
+cd ..
+```
+
+Then run crosvm with the `--media-decoder=vaapi` option:
+
+```sh
+./crosvm/target/release/crosvm run \
+  linux/arch/x86/boot/bzImage \
+  --disable-sandbox \
+  --rwdisk debian-12.img \
+  -p "root=/dev/vda1" \
+  --media-decoder=vaapi
+```
+
+And proceed as we did in the previous section in the guest. You should get the
+same result, but the difference will be that this time the decoding was
+accelerated by VAAPI.
