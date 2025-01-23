@@ -1,10 +1,10 @@
 # Trying out virtio-media
 
-This document demonstrates how to quickly try virtio-media by controlling a
-virtual host device through a Debian guest image using the
-[crosvm](https://crosvm.dev/book/) VMM.
+This document is a walkthrough for trying various virtio-media devices (a simple
+test device, a UVC camera and a software-backed decoder device) through a Debian
+guest image using the [crosvm](https://crosvm.dev/book/) VMM.
 
-Through this document, we will build and run the following components:
+Throughout this document, we will build and run the following components:
 
 - A guest Linux kernel with virtio-media support enabled
 - A Debian guest image with v4l-utils installed
