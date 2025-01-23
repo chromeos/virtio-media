@@ -3,7 +3,7 @@
 /*
  * Definitions of virtio-media session related structures.
  *
- * Copyright (c) 2023-2025 Google LLC.
+ * Copyright (c) 2024-2025 Google LLC.
  */
 
 #ifndef __VIRTIO_MEDIA_SESSION_H
@@ -16,16 +16,15 @@
 
 #define VIRTIO_MEDIA_LAST_QUEUE (V4L2_BUF_TYPE_META_OUTPUT)
 
-/**
- * Size of our virtio shadow and event buffers. 16K should definitely be enough
- * to contain anything we need.
+/*
+ * Size of the per-session virtio shadow and event buffers. 16K should be
+ * enough to contain everything we need.
  */
 #define VIRTIO_SHADOW_BUF_SIZE 0x4000
 
 /**
- * struct virtio_media_buffer - Current state of a given buffer.
- *
- * @buffer: struct v4l2_buffer with current information about the buffer.
+ * struct virtio_media_buffer - Current state of a buffer.
+ * @buffer: ``struct v4l2_buffer`` with current information about the buffer.
  * @planes: backing planes array for @buffer.
  * @list: link into the list of buffers pending dequeue.
  */
@@ -37,13 +36,12 @@ struct virtio_media_buffer {
 
 /**
  * struct virtio_media_queue_state - Represents the state of a V4L2 queue.
- *
  * @streaming: Whether the queue is currently streaming.
  * @allocated_bufs: How many buffers are currently allocated.
  * @is_capture_last: set to true when the last buffer has been received on a
- *                   capture queue, so we can return -EPIPE on subsequent DQBUF requests.
+ * capture queue, so we can return -EPIPE on subsequent DQBUF requests.
  * @buffers: Buffer state array of size @allocated_bufs.
- * @queued_bufs: How many buffers are currently queued at the host.
+ * @queued_bufs: How many buffers are currently queued on the device.
  * @pending_dqbufs: Buffers that are available for being dequeued.
  */
 struct virtio_media_queue_state {
@@ -57,21 +55,22 @@ struct virtio_media_queue_state {
 };
 
 /**
- * struct virtio_media_session - A session on a virtio_media device, created
- * whenever the device is opened.
- *
+ * struct virtio_media_session - A session on a virtio_media device.
  * @fh: file handler for the session.
  * @id: session ID used to communicate with the device.
  * @nonblocking_dequeue: whether dequeue should block or not (nonblocking if
- *                       file opened with O_NONBLOCK).
+ * file opened with O_NONBLOCK).
  * @uses_mplane: whether the queues for this session use the MPLANE API or not.
- * @cmd: union of session-related commands. Each session can have one command currently running.
- * @resp: union of session-related responses.
- * @shadow_buf: shadow buffer where commandq data can be staged before being sent to the device.
- * @command_sg: SG table gathering descriptors for a given command and its response.
+ * @cmd: union of session-related commands. A session can have one command currently running.
+ * @resp: union of session-related responses. A session can wait on one command only.
+ * @shadow_buf: shadow buffer where data to be added to the descriptor chain can
+ * be staged before being sent to the device.
+ * @command_sgs: SG table gathering descriptors for a given command and its response.
  * @queues: state of all the queues for this session.
- * @dqbufs_lock: protects pending_dqbufs of virtio_media_queue_state.
- * @dqbufs_wait: waitqueue for dequeued buffers, if VIDIOC_DQBUF needs to block or when polling.
+ * @queues_lock: protects all members fo the queues for this session.
+ * virtio_media_queue_state`.
+ * @dqbuf_wait: waitqueue for dequeued buffers, if ``VIDIOC_DQBUF`` needs to
+ * block or when polling.
  * @list: link into the list of sessions for the device.
  */
 struct virtio_media_session {
@@ -96,8 +95,8 @@ struct virtio_media_session {
 	struct sg_table command_sgs;
 
 	struct virtio_media_queue_state queues[VIRTIO_MEDIA_LAST_QUEUE + 1];
-	struct mutex dqbufs_lock;
-	wait_queue_head_t dqbufs_wait;
+	struct mutex queues_lock;
+	wait_queue_head_t dqbuf_wait;
 
 	struct list_head list;
 };

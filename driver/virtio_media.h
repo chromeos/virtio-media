@@ -3,7 +3,7 @@
 /*
  * Virtio-media structures & functions declarations.
  *
- * Copyright (c) 2023-2025 Google LLC.
+ * Copyright (c) 2024-2025 Google LLC.
  */
 
 #ifndef __VIRTIO_MEDIA_H
@@ -16,12 +16,28 @@
 
 #define DESC_CHAIN_MAX_LEN SG_MAX_SINGLE_ALLOC
 
-#define VIRTIO_MEDIA_DEFAULT_DRIVER_NAME "virtio_media"
+#define VIRTIO_MEDIA_DEFAULT_DRIVER_NAME "virtio-media"
 
 extern char *driver_name;
+extern bool allow_userptr;
 
 /**
- * Virtio-media device.
+ * struct virtio_media - Virtio-media device.
+ * @v4l2_dev: v4l2_device for the media device.
+ * @video_dev: video_device for the media device.
+ * @virtio_dev: virtio device for the media device.
+ * @commandq: virtio command queue.
+ * @eventq: virtio event queue.
+ * @eventq_work: work to run when events are received on @eventq.
+ * @mmap_region: region into which MMAP buffers are mapped by the host.
+ * @event_buffer: buffer for event descriptors.
+ * @sessions: list of active sessions on the device.
+ * @sessions_lock: protects @sessions and ``virtio_media_session::list``.
+ * @events_lock: prevents concurrent processing of events.
+ * @cmd: union of device-related commands.
+ * @resp: union of device-related responses.
+ * @vlock: serializes access to the command queue.
+ * @wq: waitqueue for host responses on the command queue.
  */
 struct virtio_media {
 	struct v4l2_device v4l2_dev;
@@ -32,19 +48,14 @@ struct virtio_media {
 	struct virtqueue *eventq;
 	struct work_struct eventq_work;
 
-	/* Region into which MMAP buffers are mapped by the host. */
 	struct virtio_shm_region mmap_region;
 
-	/* Buffer for event descriptors. */
 	void *event_buffer;
 
-	/* List of active decoding sessions */
 	struct list_head sessions;
-	/* Protects `sessions` */
 	struct mutex sessions_lock;
 
-	/* Make sure we don't have two threads processing events at the same time */
-	struct mutex events_process_lock;
+	struct mutex events_lock;
 
 	union {
 		struct virtio_media_cmd_open open;
@@ -56,13 +67,7 @@ struct virtio_media {
 		struct virtio_media_resp_munmap munmap;
 	} resp;
 
-	/* Protects `cmd_buf` and `resp_buf` */
-	struct mutex bufs_lock;
-
-	/* Used to serialize all virtio commands */
 	struct mutex vlock;
-
-	/* Waitqueue for host responses on the command queue */
 	wait_queue_head_t wq;
 };
 

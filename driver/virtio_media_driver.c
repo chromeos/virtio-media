@@ -3,9 +3,10 @@
 /*
  * Virtio-media driver.
  *
- * Copyright (c) 2023-2025 Google LLC.
+ * Copyright (c) 2024-2025 Google LLC.
  */
 
+#include "linux/dev_printk.h"
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/mm.h>
@@ -53,9 +54,23 @@
 char *driver_name;
 module_param(driver_name, charp, 0660);
 
+/*
+ * Whether USERPTR buffers are allowed.
+ *
+ * This is disabled by default as USERPTR buffers are dangerous, but the option
+ * is left to enable them if desired.
+ */
+bool allow_userptr;
+module_param(allow_userptr, bool, 0660);
+
 /**
- * Allocate a new session. The id and list fields must still be set by the
- * caller.
+ * virtio_media_session_alloc - Allocate a new session.
+ * @vv: virtio-media device the session belongs to.
+ * @id: ID of the session.
+ * @nonblocking_dequeue: whether dequeuing of buffers should be blocking or
+ * not.
+ *
+ * The ``id`` and ``list`` fields must still be set by the caller.
  */
 static struct virtio_media_session *
 virtio_media_session_alloc(struct virtio_media *vv, u32 id,
@@ -87,9 +102,9 @@ virtio_media_session_alloc(struct virtio_media *vv, u32 id,
 
 	for (i = 0; i <= VIRTIO_MEDIA_LAST_QUEUE; i++)
 		INIT_LIST_HEAD(&session->queues[i].pending_dqbufs);
-	mutex_init(&session->dqbufs_lock);
+	mutex_init(&session->queues_lock);
 
-	init_waitqueue_head(&session->dqbufs_wait);
+	init_waitqueue_head(&session->dqbuf_wait);
 
 	mutex_lock(&vv->sessions_lock);
 	list_add_tail(&session->list, &vv->sessions);
@@ -106,10 +121,15 @@ err_session:
 }
 
 /**
- * Close and destroy `session`.
+ * virtio_media_session_free - Free all resources of a session.
+ * @vv: virtio-media device the session belongs to.
+ * @session: session to destroy.
+ *
+ * All the resources of @sesssion, as well as the backing memory of @session
+ * itself, are freed.
  */
-static void virtio_media_session_close(struct virtio_media *vv,
-				       struct virtio_media_session *session)
+static void virtio_media_session_free(struct virtio_media *vv,
+				      struct virtio_media_session *session)
 {
 	int i;
 
@@ -131,7 +151,43 @@ static void virtio_media_session_close(struct virtio_media *vv,
 }
 
 /**
- * Lookup the session with `id`.
+ * virtio_media_session_close - Close and free a session.
+ * @vv: virtio-media device the session belongs to.
+ * @session: session to close and destroy.
+ *
+ * This send the ``VIRTIO_MEDIA_CMD_CLOSE`` command to the device, and frees
+ * all resources used by @session.
+ */
+static int virtio_media_session_close(struct virtio_media *vv,
+				      struct virtio_media_session *session)
+{
+	struct virtio_media_cmd_close *cmd_close = &session->cmd.close;
+	struct scatterlist cmd_sg = {};
+	struct scatterlist *sgs[1] = { &cmd_sg };
+	int ret;
+
+	mutex_lock(&vv->vlock);
+
+	cmd_close->hdr.cmd = VIRTIO_MEDIA_CMD_CLOSE;
+	cmd_close->session_id = session->id;
+
+	sg_set_buf(&cmd_sg, cmd_close, sizeof(*cmd_close));
+	sg_mark_end(&cmd_sg);
+
+	ret = virtio_media_send_command(vv, sgs, 1, 0, 0, NULL);
+	mutex_unlock(&vv->vlock);
+	if (ret < 0)
+		return ret;
+
+	virtio_media_session_free(vv, session);
+
+	return 0;
+}
+
+/**
+ * virtio_media_find_session - Lookup for the session with a given ID.
+ * @vv: virtio-media device to lookup the session from.
+ * @id: ID of the session to lookup.
  */
 static struct virtio_media_session *
 virtio_media_find_session(struct virtio_media *vv, u32 id)
@@ -154,36 +210,51 @@ virtio_media_find_session(struct virtio_media *vv, u32 id)
 }
 
 /**
- * Callback parameters to the virtio command queue.
+ * struct virtio_media_cmd_callback_param - Callback parameters to the virtio command queue.
+ * @vv: virtio-media device in use.
+ * @done: flag to be switched once the command is completed.
+ * @resp_len: length of the received response from the command. Only valid
+ * after @done_flag has switched to ``true``.
  */
 struct virtio_media_cmd_callback_param {
 	struct virtio_media *vv;
-	/* Flag to switch once the command is completed */
-	bool done_flag;
-	/* Size of the received response */
+	bool done;
 	size_t resp_len;
 };
 
 /**
- * Callback for the command queue. This just wakes up the thread that was
- * waiting on the command to complete.
+ * commandq_callback: Callback for the command queue.
+ * @queue: command virtqueue.
+ *
+ * This just wakes up the thread that was waiting on the command to complete.
  */
 static void commandq_callback(struct virtqueue *queue)
 {
 	unsigned int len;
 	struct virtio_media_cmd_callback_param *param;
 
+process_bufs:
 	while ((param = virtqueue_get_buf(queue, &len))) {
-		param->done_flag = true;
+		param->done = true;
 		param->resp_len = len;
 		wake_up(&param->vv->wq);
 	}
 
-	virtqueue_enable_cb(queue);
+	if (!virtqueue_enable_cb(queue)) {
+		virtqueue_disable_cb(queue);
+		goto process_bufs;
+	}
 }
 
 /**
- * Returns 0 in case of success, or a negative error code.
+ * virtio_media_kick_command - send a command to the commandq.
+ * @vv: virtio-media device in use.
+ * @sgs: descriptor chain to send.
+ * @out_sgs: number of device-readable descriptors in @sgs.
+ * @in_sgs: number of device-writable descriptors in @sgs.
+ * @resp_len: output parameter. Upon success, contains the size of the response
+ * in bytes.
+ *
  */
 static int virtio_media_kick_command(struct virtio_media *vv,
 				     struct scatterlist **sgs,
@@ -192,7 +263,7 @@ static int virtio_media_kick_command(struct virtio_media *vv,
 {
 	struct virtio_media_cmd_callback_param cb_param = {
 		.vv = vv,
-		.done_flag = false,
+		.done = false,
 		.resp_len = 0,
 	};
 	struct virtio_media_resp_header *resp_header;
@@ -212,7 +283,7 @@ static int virtio_media_kick_command(struct virtio_media *vv,
 	}
 
 	/* Wait for the response. */
-	ret = wait_event_timeout(vv->wq, cb_param.done_flag, 5 * HZ);
+	ret = wait_event_timeout(vv->wq, cb_param.done, 5 * HZ);
 	if (ret == 0) {
 		v4l2_err(&vv->v4l2_dev,
 			 "timed out waiting for response to command\n");
@@ -243,15 +314,17 @@ static int virtio_media_kick_command(struct virtio_media *vv,
 }
 
 /**
- * Send a command to the host and wait for its response.
- *
- * @vv: the virtio_media device to communicate with.
- * @minimum_resp_len: the minimum length of the response expected by the caller
- * in case the command succeeded. Anything shorter than that will result in an
- * error.
- *
- * Returns 0 in case of success or an error code. If an error is returned,
- * resp_len might not have been updated.
+ * virtio_media_send_command - Send a command to the device and wait for its
+ * response.
+ * @vv: virtio-media device in use.
+ * @sgs: descriptor chain to send.
+ * @out_sgs: number of device-readable descriptors in @sgs.
+ * @in_sgs: number of device-writable descriptors in @sgs.
+ * @minimum_resp_len: minimum length of the response expected by the caller
+ * when the command is successful. Anything shorter than that will result in
+ * ``-EINVAL`` being returned.
+ * @resp_len: output parameter. Upon success, contains the size of the response
+ * in bytes.
  */
 int virtio_media_send_command(struct virtio_media *vv, struct scatterlist **sgs,
 			      const size_t out_sgs, const size_t in_sgs,
@@ -280,8 +353,10 @@ int virtio_media_send_command(struct virtio_media *vv, struct scatterlist **sgs,
 }
 
 /**
- * Send the event buffer to the host so it can return it back to us filled with
- * the next event that occurred.
+ * virtio_media_send_event_buffer() - Sends an event buffer to the host so it
+ * can return it with an event.
+ * @vv: virtio-media device in use.
+ * @event_buffer: pointer to the event buffer to send to the device.
  */
 static int virtio_media_send_event_buffer(struct virtio_media *vv,
 					  void *event_buffer)
@@ -308,6 +383,12 @@ static int virtio_media_send_event_buffer(struct virtio_media *vv,
 	return 0;
 }
 
+/**
+ * eventq_callback() - Callback for the event queue.
+ * @queue: event virtqueue.
+ *
+ * This just schedules for event work to be run.
+ */
 static void eventq_callback(struct virtqueue *queue)
 {
 	struct virtio_media *vv = queue->vdev->priv;
@@ -315,6 +396,14 @@ static void eventq_callback(struct virtqueue *queue)
 	schedule_work(&vv->eventq_work);
 }
 
+/**
+ * virtio_media_process_dqbuf_event() - Process a dequeued event for a session.
+ * @vv: virtio-media device in use.
+ * @session: session the event is addressed to.
+ * @dqbuf_evt: the dequeued event to process.
+ *
+ * Invalid events are ignored with an error log.
+ */
 static void
 virtio_media_process_dqbuf_event(struct virtio_media *vv,
 				 struct virtio_media_session *session,
@@ -369,13 +458,23 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 	/* Set the DONE flag as the buffer is waiting for being dequeued. */
 	dqbuf->buffer.flags |= V4L2_BUF_FLAG_DONE;
 
-	mutex_lock(&session->dqbufs_lock);
+	mutex_lock(&session->queues_lock);
 	list_add_tail(&dqbuf->list, &queue->pending_dqbufs);
-	mutex_unlock(&session->dqbufs_lock);
 	queue->queued_bufs -= 1;
-	wake_up(&session->dqbufs_wait);
+	mutex_unlock(&session->queues_lock);
+
+	wake_up(&session->dqbuf_wait);
 }
 
+/**
+ * virtio_media_process_events() - Process all pending events on a device.
+ * @vv: device which pending events we want to process.
+ *
+ * Retrieves all pending events on @vv's event queue and dispatch them to their
+ * corresponding session.
+ *
+ * Invalid events are ignored with an error log.
+ */
 void virtio_media_process_events(struct virtio_media *vv)
 {
 	struct virtio_media_event_error *error_evt;
@@ -385,8 +484,9 @@ void virtio_media_process_events(struct virtio_media *vv)
 	struct virtio_media_event_header *evt;
 	unsigned int len;
 
-	mutex_lock(&vv->events_process_lock);
+	mutex_lock(&vv->events_lock);
 
+process_bufs:
 	while ((evt = virtqueue_get_buf(vv->eventq, &len))) {
 		/* Make sure we received enough data */
 		if (len < sizeof(*evt)) {
@@ -417,7 +517,7 @@ void virtio_media_process_events(struct virtio_media *vv)
 			v4l2_err(&vv->v4l2_dev,
 				 "received error %d for session %d",
 				 error_evt->errno, error_evt->hdr.session_id);
-			/* TODO close session! */
+			virtio_media_session_close(vv, session);
 			break;
 
 		/*
@@ -460,16 +560,14 @@ end_of_event:
 		virtio_media_send_event_buffer(vv, evt);
 	}
 
-	virtqueue_enable_cb(vv->eventq);
+	if (!virtqueue_enable_cb(vv->eventq)) {
+		virtqueue_disable_cb(vv->eventq);
+		goto process_bufs;
+	}
 
-	mutex_unlock(&vv->events_process_lock);
+	mutex_unlock(&vv->events_lock);
 }
 
-/**
- * Event callback. This processes the returned event buffer and immediately
- * sends it again to the host so it can send us the next event without ever
- * starving.
- */
 static void virtio_media_event_work(struct work_struct *work)
 {
 	struct virtio_media *vv =
@@ -479,7 +577,8 @@ static void virtio_media_event_work(struct work_struct *work)
 }
 
 /**
- * Opens the device and create a new session.
+ * virtio_media_device_open() - Create a new session from an opened file.
+ * @file: opened file for the session.
  */
 static int virtio_media_device_open(struct file *file)
 {
@@ -501,12 +600,10 @@ static int virtio_media_device_open(struct file *file)
 	sg_set_buf(&resp_sg, resp_open, sizeof(*resp_open));
 	sg_mark_end(&resp_sg);
 
-	mutex_lock(&vv->bufs_lock);
 	cmd_open->hdr.cmd = VIRTIO_MEDIA_CMD_OPEN;
 	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(*resp_open),
 					NULL);
 	session_id = resp_open->session_id;
-	mutex_unlock(&vv->bufs_lock);
 	mutex_unlock(&vv->vlock);
 	if (ret < 0)
 		return ret;
@@ -522,7 +619,11 @@ static int virtio_media_device_open(struct file *file)
 }
 
 /**
- * Close a previously opened session.
+ * virtio_media_device_close() - Close a previously opened session.
+ * @file: file of the session to close.
+ *
+ * This sends to ``VIRTIO_MEDIA_CMD_CLOSE`` command to the device, and close
+ * the session on the driver side.
  */
 static int virtio_media_device_close(struct file *file)
 {
@@ -530,31 +631,14 @@ static int virtio_media_device_close(struct file *file)
 	struct virtio_media *vv = to_virtio_media(video_dev);
 	struct virtio_media_session *session =
 		fh_to_session(file->private_data);
-	struct virtio_media_cmd_close *cmd_close = &session->cmd.close;
-	struct scatterlist cmd_sg = {};
-	struct scatterlist *sgs[1] = { &cmd_sg };
-	int ret;
 
-	mutex_lock(&vv->vlock);
-
-	cmd_close->hdr.cmd = VIRTIO_MEDIA_CMD_CLOSE;
-	cmd_close->session_id = session->id;
-
-	sg_set_buf(&cmd_sg, cmd_close, sizeof(*cmd_close));
-	sg_mark_end(&cmd_sg);
-
-	ret = virtio_media_send_command(vv, sgs, 1, 0, 0, NULL);
-	mutex_unlock(&vv->vlock);
-	if (ret < 0)
-		return ret;
-
-	virtio_media_session_close(vv, session);
-
-	return 0;
+	return virtio_media_session_close(vv, session);
 }
 
 /**
- * Implements poll logic for a virtio-media device.
+ * virtio_media_device_poll() - Poll logic for a virtio-media device.
+ * @file: file of the session to poll.
+ * @wait: poll table to wait on.
  */
 static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 {
@@ -573,10 +657,10 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 	__poll_t req_events = poll_requested_events(wait);
 	__poll_t rc = 0;
 
-	poll_wait(file, &session->dqbufs_wait, wait);
+	poll_wait(file, &session->dqbuf_wait, wait);
 	poll_wait(file, &session->fh.wait, wait);
 
-	mutex_lock(&session->dqbufs_lock);
+	mutex_lock(&session->queues_lock);
 	if (req_events & (EPOLLIN | EPOLLRDNORM)) {
 		if (!capture_queue->streaming ||
 		    (capture_queue->queued_bufs == 0 &&
@@ -592,7 +676,7 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 			 output_queue->allocated_bufs)
 			rc |= EPOLLOUT | EPOLLWRNORM;
 	}
-	mutex_unlock(&session->dqbufs_lock);
+	mutex_unlock(&session->queues_lock);
 
 	if (v4l2_event_pending(&session->fh))
 		rc |= EPOLLPRI;
@@ -600,10 +684,6 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 	return rc;
 }
 
-/**
- * Inform the host that a previously created MMAP mapping is no longer needed
- * and can be removed.
- */
 static void virtio_media_vma_close_locked(struct vm_area_struct *vma)
 {
 	struct virtio_media *vv = vma->vm_private_data;
@@ -619,19 +699,24 @@ static void virtio_media_vma_close_locked(struct vm_area_struct *vma)
 	sg_set_buf(&resp_sg, resp_munmap, sizeof(*resp_munmap));
 	sg_mark_end(&resp_sg);
 
-	mutex_lock(&vv->bufs_lock);
 	cmd_munmap->hdr.cmd = VIRTIO_MEDIA_CMD_MUNMAP;
 	cmd_munmap->driver_addr =
 		(vma->vm_pgoff << PAGE_SHIFT) - vv->mmap_region.addr;
 	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(*resp_munmap),
 					NULL);
-	mutex_unlock(&vv->bufs_lock);
 	if (ret < 0) {
 		v4l2_err(&vv->v4l2_dev, "host failed to unmap buffer: %d\n",
 			 ret);
 	}
 }
 
+/**
+ * virtio_media_vma_close() - Close a MMAP buffer mapping.
+ * @vma: VMA of the mapping to close.
+ *
+ * Inform the host that a previously created MMAP mapping is no longer needed
+ * and can be removed.
+ */
 static void virtio_media_vma_close(struct vm_area_struct *vma)
 {
 	struct virtio_media *vv = vma->vm_private_data;
@@ -646,10 +731,12 @@ static const struct vm_operations_struct virtio_media_vm_ops = {
 };
 
 /**
- * Perform a mmap request from the guest.
+ * virtio_media_device_mmap - Perform a mmap request from userspace.
+ * @file: opened file of the session to map for.
+ * @vma: VM area struct describing the desired mapping.
  *
- * This requests the host to map a MMAP buffer for us, so we can make that
- * mapping visible into the user-space address space.
+ * This requests the host to map a MMAP buffer for us, so we can then make that
+ * mapping visible into user-space address space.
  */
 static int virtio_media_device_mmap(struct file *file,
 				    struct vm_area_struct *vma)
@@ -701,7 +788,12 @@ static int virtio_media_device_mmap(struct file *file,
 	vma->vm_pgoff = (resp_mmap->driver_addr + vv->mmap_region.addr) >>
 			PAGE_SHIFT;
 
+	/*
+	 * We cannot let the mapping be larger than the buffer.
+	 */
 	if (vma->vm_end - vma->vm_start > PAGE_ALIGN(resp_mmap->len)) {
+		dev_dbg(&video_dev->dev,
+			"invalid MMAP, as it would overflow buffer length\n");
 		virtio_media_vma_close_locked(vma);
 		ret = -EINVAL;
 		goto end;
@@ -766,11 +858,9 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	if (!vv->event_buffer)
 		return -ENOMEM;
 
-	mutex_init(&vv->bufs_lock);
-
 	INIT_LIST_HEAD(&vv->sessions);
 	mutex_init(&vv->sessions_lock);
-	mutex_init(&vv->events_process_lock);
+	mutex_init(&vv->events_lock);
 	mutex_init(&vv->vlock);
 
 	vv->virtio_dev = virtio_dev;
@@ -798,8 +888,6 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	virtio_get_shm_region(virtio_dev, &vv->mmap_region,
 			      VIRTIO_MEDIA_SHM_MMAP);
 
-	virtio_device_ready(virtio_dev);
-
 	vd = &vv->video_dev;
 
 	vd->v4l2_dev = &vv->v4l2_dev;
@@ -819,9 +907,6 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 
 	video_set_drvdata(vd, vv);
 
-	/* TODO find out when we should enable this ioctl? */
-	v4l2_disable_ioctl(vd, VIDIOC_S_HW_FREQ_SEEK);
-
 	ret = video_register_device(vd, virtio_cread32(virtio_dev, 4), 0);
 	if (ret)
 		return ret;
@@ -832,6 +917,8 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 		if (ret)
 			goto send_event_buffer;
 	}
+
+	virtio_device_ready(virtio_dev);
 
 	return 0;
 
@@ -860,7 +947,7 @@ static void virtio_media_remove(struct virtio_device *virtio_dev)
 		struct virtio_media_session *s =
 			list_entry(p, struct virtio_media_session, list);
 
-		virtio_media_session_close(vv, s);
+		virtio_media_session_free(vv, s);
 	}
 }
 

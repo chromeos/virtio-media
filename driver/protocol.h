@@ -3,7 +3,7 @@
 /*
  * Definitions of virtio-media protocol structures.
  *
- * Copyright (c) 2023-2025 Google LLC.
+ * Copyright (c) 2024-2025 Google LLC.
  */
 
 #ifndef __VIRTIO_MEDIA_PROTOCOL_H
