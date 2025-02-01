@@ -80,6 +80,7 @@ static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl,
 
 	return 0;
 }
+
 /**
  * virtio_media_send_w_ioctl() - Send a write-only ioctl to the device.
  * @fh: file handler of the session doing the ioctl.
@@ -557,10 +558,10 @@ static int virtio_media_querycap(struct file *file, void *fh,
 
 	strscpy(cap->bus_info, "platform:virtio-media");
 
-	if (!driver_name)
+	if (!virtio_media_driver_name)
 		strscpy(cap->driver, VIRTIO_MEDIA_DEFAULT_DRIVER_NAME);
 	else
-		strscpy(cap->driver, driver_name);
+		strscpy(cap->driver, virtio_media_driver_name);
 
 	virtio_cread_bytes(vv->virtio_dev, 8, cap->card, sizeof(cap->card));
 
@@ -709,7 +710,7 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	if (b->type > VIRTIO_MEDIA_LAST_QUEUE)
 		return -EINVAL;
 
-	if (b->memory == V4L2_MEMORY_USERPTR && !allow_userptr)
+	if (b->memory == V4L2_MEMORY_USERPTR && !virtio_media_allow_userptr)
 		return -EINVAL;
 
 	ret = virtio_media_send_wr_ioctl(fh, VIDIOC_REQBUFS, b, sizeof(*b),
@@ -742,7 +743,7 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type))
 		session->uses_mplane = true;
 
-	if (!allow_userptr)
+	if (!virtio_media_allow_userptr)
 		b->capabilities &= ~V4L2_BUF_CAP_SUPPORTS_USERPTR;
 
 	/* We do not support DMABUF yet. */
@@ -802,8 +803,8 @@ static int virtio_media_create_bufs(struct file *file, void *fh,
 
 	buffers = queue->buffers;
 
-	queue->buffers = vzalloc(sizeof(struct virtio_media_buffer) *
-				 (b->index + b->count));
+	queue->buffers =
+		vzalloc(sizeof(*queue->buffers) * (b->index + b->count));
 	if (!queue->buffers) {
 		queue->buffers = buffers;
 		return -ENOMEM;

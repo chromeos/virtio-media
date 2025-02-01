@@ -9,7 +9,6 @@
 #ifndef __VIRTIO_MEDIA_PROTOCOL_H
 #define __VIRTIO_MEDIA_PROTOCOL_H
 
-#include "linux/videodev2.h"
 #include <linux/videodev2.h>
 
 /*

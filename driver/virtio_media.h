@@ -18,8 +18,8 @@
 
 #define VIRTIO_MEDIA_DEFAULT_DRIVER_NAME "virtio-media"
 
-extern char *driver_name;
-extern bool allow_userptr;
+extern char *virtio_media_driver_name;
+extern bool virtio_media_allow_userptr;
 
 /**
  * struct virtio_media - Virtio-media device.

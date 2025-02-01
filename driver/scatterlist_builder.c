@@ -6,7 +6,6 @@
  * Copyright (c) 2024-2025 Google LLC.
  */
 
-#include "linux/videodev2.h"
 #include <linux/moduleparam.h>
 #include <linux/scatterlist.h>
 #include <linux/videodev2.h>

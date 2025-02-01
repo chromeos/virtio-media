@@ -6,9 +6,9 @@
  * Copyright (c) 2024-2025 Google LLC.
  */
 
-#include "linux/dev_printk.h"
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/dev_printk.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/scatterlist.h>
@@ -51,8 +51,8 @@
  * some drivers. When proxying these directly from the host, this allows it to
  * apply them as needed.
  */
-char *driver_name;
-module_param(driver_name, charp, 0660);
+char *virtio_media_driver_name;
+module_param_named(driver_name, virtio_media_driver_name, charp, 0660);
 
 /*
  * Whether USERPTR buffers are allowed.
@@ -60,8 +60,8 @@ module_param(driver_name, charp, 0660);
  * This is disabled by default as USERPTR buffers are dangerous, but the option
  * is left to enable them if desired.
  */
-bool allow_userptr;
-module_param(allow_userptr, bool, 0660);
+bool virtio_media_allow_userptr;
+module_param_named(allow_userptr, virtio_media_allow_userptr, bool, 0660);
 
 /**
  * virtio_media_session_alloc - Allocate a new session.
@@ -143,8 +143,7 @@ static void virtio_media_session_free(struct virtio_media *vv,
 	sg_free_table(&session->command_sgs);
 
 	for (i = 0; i <= VIRTIO_MEDIA_LAST_QUEUE; i++)
-		if (session->queues[i].buffers)
-			vfree(session->queues[i].buffers);
+		vfree(session->queues[i].buffers);
 
 	kfree(session->shadow_buf);
 	kfree(session);
@@ -498,7 +497,7 @@ process_bufs:
 		}
 
 		session = virtio_media_find_session(vv, evt->session_id);
-		if (session == NULL) {
+		if (!session) {
 			v4l2_err(&vv->v4l2_dev, "cannot find session %d\n",
 				 evt->session_id);
 			goto end_of_event;
@@ -909,21 +908,22 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 
 	ret = video_register_device(vd, virtio_cread32(virtio_dev, 4), 0);
 	if (ret)
-		return ret;
+		goto err_register_device;
 
 	for (i = 0; i < VIRTIO_MEDIA_NUM_EVENT_BUFS; i++) {
 		ret = virtio_media_send_event_buffer(
 			vv, vv->event_buffer + VIRTIO_MEDIA_EVENT_MAX_SIZE * i);
 		if (ret)
-			goto send_event_buffer;
+			goto err_send_event_buffer;
 	}
 
 	virtio_device_ready(virtio_dev);
 
 	return 0;
 
-send_event_buffer:
+err_send_event_buffer:
 	video_unregister_device(&vv->video_dev);
+err_register_device:
 	virtio_dev->config->del_vqs(virtio_dev);
 err_find_vqs:
 	v4l2_device_unregister(&vv->v4l2_dev);
@@ -972,5 +972,5 @@ module_virtio_driver(virtio_media_driver);
 
 MODULE_DEVICE_TABLE(virtio, id_table);
 MODULE_DESCRIPTION("virtio media driver");
-MODULE_AUTHOR("Alexandre Courbot <acourbot@google.com>");
+MODULE_AUTHOR("Alexandre Courbot <gnurou@gmail.com>");
 MODULE_LICENSE("Dual BSD/GPL");
