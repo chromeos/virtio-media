@@ -63,6 +63,7 @@ use v4l2r::ioctl::EventType as V4l2EventType;
 use v4l2r::ioctl::ExpbufFlags;
 use v4l2r::ioctl::ExtControlError;
 use v4l2r::ioctl::IntoErrno;
+use v4l2r::ioctl::MemoryConsistency;
 use v4l2r::ioctl::QueryCapError;
 use v4l2r::ioctl::QueryCtrlFlags;
 use v4l2r::ioctl::SelectionFlags;
@@ -611,9 +612,10 @@ where
         queue: QueueType,
         memory: MemoryType,
         count: u32,
+        flags: MemoryConsistency,
     ) -> IoctlResult<v4l2_requestbuffers> {
         let mut reqbufs: v4l2_requestbuffers =
-            v4l2r::ioctl::reqbufs(&session.device, queue, memory, count)
+            v4l2r::ioctl::reqbufs(&session.device, queue, memory, count, flags)
                 .map_err(IntoErrno::into_errno)?;
 
         // We do not support requests at the moment, so do not advertize them.

@@ -42,6 +42,7 @@ use v4l2r::ioctl::AudioMode;
 use v4l2r::ioctl::CtrlId;
 use v4l2r::ioctl::CtrlWhich;
 use v4l2r::ioctl::EventType as V4l2EventType;
+use v4l2r::ioctl::MemoryConsistency;
 use v4l2r::ioctl::QueryCtrlFlags;
 use v4l2r::ioctl::SelectionFlags;
 use v4l2r::ioctl::SelectionTarget;
@@ -288,6 +289,7 @@ pub trait VirtioMediaIoctlHandler {
         queue: QueueType,
         memory: MemoryType,
         count: u32,
+        flags: MemoryConsistency,
     ) -> IoctlResult<v4l2_requestbuffers> {
         unhandled_ioctl!()
     }
@@ -856,6 +858,7 @@ where
         VIDIOC_REQBUFS => wr_ioctl(ioctl, reader, writer, |reqbufs: v4l2_requestbuffers| {
             let queue = QueueType::n(reqbufs.type_).ok_or(libc::EINVAL)?;
             let memory = MemoryType::n(reqbufs.memory).ok_or(libc::EINVAL)?;
+            let flags = MemoryConsistency::from_bits(reqbufs.flags).ok_or(libc::EINVAL)?;
 
             match memory {
                 MemoryType::Mmap | MemoryType::UserPtr => (),
@@ -868,7 +871,7 @@ where
                 }
             }
 
-            handler.reqbufs(session, queue, memory, reqbufs.count)
+            handler.reqbufs(session, queue, memory, reqbufs.count, flags)
         }),
         VIDIOC_QUERYBUF => {
             wr_ioctl(ioctl, reader, writer, |buffer: v4l2_buffer| {

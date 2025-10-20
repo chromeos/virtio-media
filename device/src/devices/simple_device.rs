@@ -24,6 +24,7 @@ use v4l2r::bindings::v4l2_requestbuffers;
 use v4l2r::ioctl::BufferCapabilities;
 use v4l2r::ioctl::BufferField;
 use v4l2r::ioctl::BufferFlags;
+use v4l2r::ioctl::MemoryConsistency;
 use v4l2r::ioctl::V4l2Buffer;
 use v4l2r::ioctl::V4l2PlanesWithBackingMut;
 use v4l2r::memory::MemoryType;
@@ -378,6 +379,7 @@ where
         queue: QueueType,
         memory: MemoryType,
         count: u32,
+        flags: MemoryConsistency,
     ) -> IoctlResult<v4l2_requestbuffers> {
         if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
@@ -461,6 +463,7 @@ where
             capabilities: (BufferCapabilities::SUPPORTS_MMAP
                 | BufferCapabilities::SUPPORTS_ORPHANED_BUFS)
                 .bits(),
+            flags: flags.bits(),
             ..Default::default()
         })
     }

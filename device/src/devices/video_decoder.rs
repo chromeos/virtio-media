@@ -11,6 +11,7 @@ use v4l2r::ioctl::BufferField;
 use v4l2r::ioctl::BufferFlags;
 use v4l2r::ioctl::DecoderCmd;
 use v4l2r::ioctl::EventType;
+use v4l2r::ioctl::MemoryConsistency;
 use v4l2r::ioctl::SelectionTarget;
 use v4l2r::ioctl::SelectionType;
 use v4l2r::ioctl::SrcChanges;
@@ -693,7 +694,10 @@ where
     fn process_events(&mut self, session: &mut Self::Session) -> Result<(), i32> {
         let has_event = if let Some(event) = session.backend_session.next_event() {
             match event {
-                VideoDecoderBackendEvent::InputBufferDone { buffer_id: id, error } => {
+                VideoDecoderBackendEvent::InputBufferDone {
+                    buffer_id: id,
+                    error,
+                } => {
                     let Some(buffer) = session.input_buffers.get_mut(id as usize) else {
                         log::error!("no matching OUTPUT buffer with id {} to process event", id);
                         return Ok(());
@@ -915,6 +919,7 @@ where
         queue: QueueType,
         memory: MemoryType,
         count: u32,
+        flags: MemoryConsistency,
     ) -> IoctlResult<bindings::v4l2_requestbuffers> {
         if memory != MemoryType::Mmap {
             return Err(libc::EINVAL);
@@ -987,7 +992,7 @@ where
             capabilities: (BufferCapabilities::SUPPORTS_MMAP
                 | BufferCapabilities::SUPPORTS_ORPHANED_BUFS)
                 .bits(),
-            flags: 0,
+            flags: flags.bits(),
             reserved: Default::default(),
         })
     }
