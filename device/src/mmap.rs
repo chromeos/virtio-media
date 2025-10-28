@@ -133,7 +133,7 @@ impl<M: VirtioMediaHostMemoryMapper> MmapMappingManager<M> {
                 .last()
                 // Align the start offset to the next page, or `register_buffer_by_offset` will
                 // fail.
-                .map(|b| ((b.offset + 1).next_multiple_of(PAGE_SIZE)))
+                .map(|b| (b.offset + 1).next_multiple_of(PAGE_SIZE))
                 .unwrap_or(0)
         });
 

@@ -51,7 +51,7 @@ pub trait VideoDecoderBufferBacking {
     where
         Self: Sized;
 
-    fn fd_for_plane(&self, plane_idx: usize) -> Option<BorrowedFd>;
+    fn fd_for_plane(&self, plane_idx: usize) -> Option<BorrowedFd<'_>>;
 }
 
 pub struct VideoDecoderBuffer<S: VideoDecoderBufferBacking> {
@@ -183,7 +183,7 @@ pub trait VideoDecoderBackendSession {
 
     /// Returns a file descriptor that signals `POLLIN` whenever an event is pending and can be
     /// read using [`next_event`], or `None` if the backend does not support this.
-    fn poll_fd(&self) -> Option<BorrowedFd> {
+    fn poll_fd(&self) -> Option<BorrowedFd<'_>> {
         None
     }
 
@@ -400,7 +400,7 @@ pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
 }
 
 impl<S: VideoDecoderBackendSession> VirtioMediaDeviceSession for VideoDecoderSession<S> {
-    fn poll_fd(&self) -> Option<BorrowedFd> {
+    fn poll_fd(&self) -> Option<BorrowedFd<'_>> {
         self.backend_session.poll_fd()
     }
 }

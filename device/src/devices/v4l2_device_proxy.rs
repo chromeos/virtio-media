@@ -264,7 +264,7 @@ pub struct V4l2Session<M: VirtioMediaGuestMemoryMapper> {
 }
 
 impl<M: VirtioMediaGuestMemoryMapper> VirtioMediaDeviceSession for V4l2Session<M> {
-    fn poll_fd(&self) -> Option<BorrowedFd> {
+    fn poll_fd(&self) -> Option<BorrowedFd<'_>> {
         Some(self.poller.as_fd())
     }
 }
@@ -1104,7 +1104,7 @@ where
             memory,
             format,
         )
-        .map_err(|e| (e.into_errno()))?;
+        .map_err(|e| e.into_errno())?;
 
         if count > 0 {
             let bufs_range = create_bufs.index..(create_bufs.index + create_bufs.count);

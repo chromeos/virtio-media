@@ -120,7 +120,7 @@ pub struct SimpleCaptureDeviceSession {
 }
 
 impl VirtioMediaDeviceSession for SimpleCaptureDeviceSession {
-    fn poll_fd(&self) -> Option<BorrowedFd> {
+    fn poll_fd(&self) -> Option<BorrowedFd<'_>> {
         None
     }
 }

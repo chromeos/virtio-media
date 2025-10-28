@@ -148,7 +148,7 @@ pub trait VirtioMediaDeviceSession {
     ///
     /// If this method returns `None`, then the session does not need to be polled by the client,
     /// and `process_events` does not need to be called either.
-    fn poll_fd(&self) -> Option<BorrowedFd>;
+    fn poll_fd(&self) -> Option<BorrowedFd<'_>>;
 }
 
 /// Trait for implementing virtio-media devices.
