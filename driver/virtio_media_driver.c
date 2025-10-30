@@ -74,7 +74,7 @@ module_param_named(allow_userptr, virtio_media_allow_userptr, bool, 0660);
  */
 static struct virtio_media_session *
 virtio_media_session_alloc(struct virtio_media *vv, u32 id,
-			   bool nonblocking_dequeue)
+			   struct file *file)
 {
 	struct virtio_media_session *session;
 	int i;
@@ -94,11 +94,11 @@ virtio_media_session_alloc(struct virtio_media *vv, u32 id,
 		goto err_payload_sgs;
 
 	session->id = id;
-	session->nonblocking_dequeue = nonblocking_dequeue;
+	session->nonblocking_dequeue = file->f_flags & O_NONBLOCK;
 
 	INIT_LIST_HEAD(&session->list);
 	v4l2_fh_init(&session->fh, &vv->video_dev);
-	v4l2_fh_add(&session->fh);
+	virtio_media_session_fh_add(session, file);
 
 	for (i = 0; i <= VIRTIO_MEDIA_LAST_QUEUE; i++)
 		INIT_LIST_HEAD(&session->queues[i].pending_dqbufs);
@@ -137,7 +137,7 @@ static void virtio_media_session_free(struct virtio_media *vv,
 	list_del(&session->list);
 	mutex_unlock(&vv->sessions_lock);
 
-	v4l2_fh_del(&session->fh);
+	virtio_media_session_fh_del(session);
 	v4l2_fh_exit(&session->fh);
 
 	sg_free_table(&session->command_sgs);
@@ -607,8 +607,7 @@ static int virtio_media_device_open(struct file *file)
 	if (ret < 0)
 		return ret;
 
-	session = virtio_media_session_alloc(vv, session_id,
-					     (file->f_flags & O_NONBLOCK));
+	session = virtio_media_session_alloc(vv, session_id, file);
 	if (IS_ERR(session))
 		return PTR_ERR(session);
 
