@@ -283,6 +283,7 @@ where
 const PIXELFORMAT: u32 = PixelFormat::from_fourcc(b"YU12").to_u32();
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
+const FRAME_RATE: u32 = 30;
 const BUFFER_SIZE: u32 = WIDTH * HEIGHT * 3 / 2;
 
 const INPUTS: [bindings::v4l2_input; 1] = [bindings::v4l2_input {
@@ -575,5 +576,66 @@ where
             Some(&input) => Ok(input),
             None => Err(libc::EINVAL),
         }
+    }
+
+    fn enum_framesizes(
+        &mut self,
+        _session: &Self::Session,
+        index: u32,
+        pixel_format: u32,
+    ) -> IoctlResult<bindings::v4l2_frmsizeenum> {
+        if pixel_format != PIXELFORMAT {
+            return Err(libc::EINVAL);
+        }
+        if index > 0 {
+            return Err(libc::EINVAL);
+        }
+
+        Ok(bindings::v4l2_frmsizeenum {
+            index,
+            pixel_format,
+            type_: bindings::v4l2_frmsizetypes_V4L2_FRMSIZE_TYPE_DISCRETE,
+            __bindgen_anon_1: bindings::v4l2_frmsizeenum__bindgen_ty_1 {
+                discrete: bindings::v4l2_frmsize_discrete {
+                    width: WIDTH,
+                    height: HEIGHT,
+                },
+            },
+            ..Default::default()
+        })
+    }
+
+    fn enum_frameintervals(
+        &mut self,
+        _session: &Self::Session,
+        index: u32,
+        pixel_format: u32,
+        width: u32,
+        height: u32,
+    ) -> IoctlResult<bindings::v4l2_frmivalenum> {
+        if pixel_format != PIXELFORMAT {
+            return Err(libc::EINVAL);
+        }
+        if width != WIDTH || height != HEIGHT {
+            return Err(libc::EINVAL);
+        }
+        if index > 0 {
+            return Err(libc::EINVAL);
+        }
+
+        Ok(bindings::v4l2_frmivalenum {
+            index,
+            pixel_format,
+            width,
+            height,
+            type_: bindings::v4l2_frmivaltypes_V4L2_FRMIVAL_TYPE_DISCRETE,
+            __bindgen_anon_1: bindings::v4l2_frmivalenum__bindgen_ty_1 {
+                discrete: bindings::v4l2_fract {
+                    numerator: 1,
+                    denominator: FRAME_RATE,
+                },
+            },
+            ..Default::default()
+        })
     }
 }
