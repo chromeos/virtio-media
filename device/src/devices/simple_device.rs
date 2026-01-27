@@ -404,7 +404,7 @@ where
         count: u32,
         flags: MemoryConsistency,
     ) -> IoctlResult<v4l2_requestbuffers> {
-        if queue != QueueType::VideoCapture {
+        if queue != QueueType::VideoCaptureMplane {
             return Err(libc::EINVAL);
         }
         if memory != MemoryType::Mmap {
@@ -485,7 +485,9 @@ where
             capabilities: (BufferCapabilities::SUPPORTS_MMAP
                 | BufferCapabilities::SUPPORTS_ORPHANED_BUFS)
                 .bits(),
-            flags: flags.bits(),
+            // This device does not support V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS,
+            // so the flags field in v4l2_requestbuffers must be 0.
+            flags: 0,
             ..Default::default()
         })
     }
