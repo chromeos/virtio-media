@@ -396,6 +396,52 @@ where
         Ok(default_fmt(queue))
     }
 
+    fn g_parm(
+        &mut self,
+        _session: &Self::Session,
+        queue: QueueType,
+    ) -> IoctlResult<bindings::v4l2_streamparm> {
+        if queue != QueueType::VideoCaptureMplane {
+            return Err(libc::EINVAL);
+        };;;;;
+
+        let mut parm = bindings::v4l2_streamparm {
+            type_: queue as u32,
+            ..Default::default()
+        };
+
+        // SAFETY: The `parm` union is used for the capture type.
+        let capture = unsafe { &mut parm.parm.capture };
+        capture.capability = bindings::V4L2_CAP_TIMEPERFRAME;
+        capture.timeperframe = bindings::v4l2_fract {
+            numerator: 1,
+            denominator: FRAME_RATE,
+        };
+
+        Ok(parm)
+    }
+
+    fn s_parm(
+        &mut self,
+        _session: &mut Self::Session,
+        mut parm: bindings::v4l2_streamparm,
+    ) -> IoctlResult<bindings::v4l2_streamparm> {
+        if parm.type_ != QueueType::VideoCaptureMplane as u32 {
+            return Err(libc::EINVAL);
+        }
+
+        // We just return the fixed values, ignoring what the user set.
+        // SAFETY: The `parm` union is used for the capture type.
+        let capture = unsafe { &mut parm.parm.capture };
+        capture.capability = bindings::V4L2_CAP_TIMEPERFRAME;
+        capture.timeperframe = bindings::v4l2_fract {
+            numerator: 1,
+            denominator: FRAME_RATE,
+        };
+
+        Ok(parm)
+    }
+
     fn reqbufs(
         &mut self,
         session: &mut Self::Session,
