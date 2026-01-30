@@ -403,7 +403,7 @@ where
     ) -> IoctlResult<bindings::v4l2_streamparm> {
         if queue != QueueType::VideoCaptureMplane {
             return Err(libc::EINVAL);
-        };;;;;
+        }
 
         let mut parm = bindings::v4l2_streamparm {
             type_: queue as u32,
