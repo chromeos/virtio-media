@@ -21,6 +21,7 @@ use v4l2r::bindings::v4l2_fmtdesc;
 use v4l2r::bindings::v4l2_format;
 use v4l2r::bindings::v4l2_pix_format;
 use v4l2r::bindings::v4l2_requestbuffers;
+use v4l2r::bindings::v4l2_streamparm;
 use v4l2r::ioctl::BufferCapabilities;
 use v4l2r::ioctl::BufferField;
 use v4l2r::ioctl::BufferFlags;
@@ -82,19 +83,44 @@ impl Buffer {
         let mut flags = self.v4l2_buffer.flags();
         match state {
             BufferState::New => {
-                *self.v4l2_buffer.get_first_plane_mut().bytesused = 0;
+                if let V4l2PlanesWithBackingMut::Mmap(mut planes) =
+                    self.v4l2_buffer.planes_with_backing_iter_mut()
+                {
+                    for mut plane in planes {
+                        *plane.bytesused = 0;
+                    }
+                }
                 flags -= BufferFlags::QUEUED;
             }
             BufferState::Incoming => {
-                *self.v4l2_buffer.get_first_plane_mut().bytesused = 0;
+                if let V4l2PlanesWithBackingMut::Mmap(mut planes) =
+                    self.v4l2_buffer.planes_with_backing_iter_mut()
+                {
+                    for mut plane in planes {
+                        *plane.bytesused = 0;
+                    }
+                }
                 flags |= BufferFlags::QUEUED;
             }
             BufferState::Outgoing { sequence } => {
-                *self.v4l2_buffer.get_first_plane_mut().bytesused = BUFFER_SIZE;
+                let queue_type = self.v4l2_buffer.queue();
+                if let V4l2PlanesWithBackingMut::Mmap(mut planes) =
+                    self.v4l2_buffer.planes_with_backing_iter_mut()
+                {
+                    if queue_type == QueueType::VideoCapture {
+                        *planes.next().unwrap().bytesused = BUFFER_SIZE;
+                    } else {
+                        // 3 planes for YU12
+                        *planes.next().unwrap().bytesused = WIDTH * HEIGHT;
+                        *planes.next().unwrap().bytesused = WIDTH * HEIGHT / 4;
+                        *planes.next().unwrap().bytesused = WIDTH * HEIGHT / 4;
+                    }
+                }
+
                 self.v4l2_buffer.set_sequence(sequence);
                 self.v4l2_buffer.set_timestamp(bindings::timeval {
-                    tv_sec: (sequence + 1) as bindings::__time_t / 1000,
-                    tv_usec: (sequence + 1) as bindings::__time_t % 1000,
+                    tv_sec: (sequence + 1) as bindings::time_t / 1000,
+                    tv_usec: (sequence + 1) as bindings::time_t % 1000,
                 });
                 flags -= BufferFlags::QUEUED;
             }
@@ -157,7 +183,6 @@ impl SimpleCaptureDeviceSession {
             }
             drop(writer);
 
-            *buffer.v4l2_buffer.get_first_plane_mut().bytesused = BUFFER_SIZE;
             buffer.set_state(BufferState::Outgoing { sequence });
             // TODO: should we set the DONE flag here?
             self.iteration += 1;
@@ -255,7 +280,21 @@ where
         let buffer = session
             .buffers
             .iter_mut()
-            .find(|b| b.offset == offset)
+            .find(|b| {
+                let mut is_matched = false;
+                if b.offset == offset {
+                    is_matched = true;
+                } else if b.v4l2_buffer.queue().is_multiplanar() {
+                    for plane in b.v4l2_buffer.as_v4l2_planes() {
+                        if unsafe { plane.m.mem_offset } == offset {
+                            is_matched = true;
+                            break;
+                        }
+                    }
+                }
+
+                is_matched
+            })
             .ok_or(libc::EINVAL)?;
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
         let fd = buffer.fd.as_file().as_fd();
@@ -263,11 +302,6 @@ where
             .mmap_manager
             .create_mapping(offset, fd, rw)
             .map_err(|_| libc::EINVAL)?;
-
-        // TODO: would be nice to enable this, but how do we find the buffer again during munmap?
-        //
-        // Maybe keep a guest_addr -> session map in the device...
-        // buffer.v4l2_buffer.set_flags(buffer.v4l2_buffer.flags() | BufferFlags::MAPPED);
 
         Ok((guest_addr, size))
     }
@@ -281,9 +315,8 @@ where
 }
 
 const PIXELFORMAT: u32 = PixelFormat::from_fourcc(b"YU12").to_u32();
-const WIDTH: u32 = 640;
-const HEIGHT: u32 = 480;
-const FRAME_RATE: u32 = 30;
+const WIDTH: u32 = 1280;
+const HEIGHT: u32 = 720;
 const BUFFER_SIZE: u32 = WIDTH * HEIGHT * 3 / 2;
 
 const INPUTS: [bindings::v4l2_input; 1] = [bindings::v4l2_input {
@@ -294,50 +327,75 @@ const INPUTS: [bindings::v4l2_input; 1] = [bindings::v4l2_input {
 }];
 
 fn default_fmtdesc(queue: QueueType) -> v4l2_fmtdesc {
+    let mut desc = [0u8; 32];
+    let d = "YU12";
+    for (i, b) in d.as_bytes().iter().enumerate() {
+        desc[i] = *b;
+    }
     v4l2_fmtdesc {
         index: 0,
         type_: queue as u32,
+        flags: 0,
+        description: unsafe { std::mem::transmute(desc) },
         pixelformat: PIXELFORMAT,
         ..Default::default()
     }
 }
 
 fn default_fmt(queue: QueueType) -> v4l2_format {
-    let pix_mp = bindings::v4l2_pix_format_mplane {
-        width: WIDTH,
-        height: HEIGHT,
-        pixelformat: PIXELFORMAT,
-        field: bindings::v4l2_field_V4L2_FIELD_NONE,
-        colorspace: bindings::v4l2_colorspace_V4L2_COLORSPACE_SRGB,
-        num_planes: 3,
-        plane_fmt: [
-            bindings::v4l2_plane_pix_format {
-                sizeimage: WIDTH * HEIGHT,
-                bytesperline: WIDTH,
-                ..Default::default()
-            },
-            bindings::v4l2_plane_pix_format {
-                sizeimage: WIDTH * HEIGHT / 4,
-                bytesperline: WIDTH / 2,
-                ..Default::default()
-            },
-            bindings::v4l2_plane_pix_format {
-                sizeimage: WIDTH * HEIGHT / 4,
-                bytesperline: WIDTH / 2,
-                ..Default::default()
-            },
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        ],
-        ..Default::default()
-    };
+    if queue == QueueType::VideoCapture {
+        let pix = bindings::v4l2_pix_format {
+            width: WIDTH,
+            height: HEIGHT,
+            pixelformat: PIXELFORMAT,
+            field: bindings::v4l2_field_V4L2_FIELD_NONE,
+            bytesperline: WIDTH,
+            sizeimage: BUFFER_SIZE,
+            colorspace: bindings::v4l2_colorspace_V4L2_COLORSPACE_SRGB,
+            ..Default::default()
+        };
 
-    v4l2_format {
-        type_: queue as u32,
-        fmt: bindings::v4l2_format__bindgen_ty_1 { pix_mp },
+        v4l2_format {
+            type_: queue as u32,
+            fmt: bindings::v4l2_format__bindgen_ty_1 { pix },
+        }
+    } else {
+        let pix_mp = bindings::v4l2_pix_format_mplane {
+            width: WIDTH,
+            height: HEIGHT,
+            pixelformat: PIXELFORMAT,
+            field: bindings::v4l2_field_V4L2_FIELD_NONE,
+            colorspace: bindings::v4l2_colorspace_V4L2_COLORSPACE_SRGB,
+            num_planes: 3,
+            plane_fmt: [
+                bindings::v4l2_plane_pix_format {
+                    sizeimage: WIDTH * HEIGHT,
+                    bytesperline: WIDTH,
+                    ..Default::default()
+                },
+                bindings::v4l2_plane_pix_format {
+                    sizeimage: WIDTH * HEIGHT / 4,
+                    bytesperline: WIDTH / 2,
+                    ..Default::default()
+                },
+                bindings::v4l2_plane_pix_format {
+                    sizeimage: WIDTH * HEIGHT / 4,
+                    bytesperline: WIDTH / 2,
+                    ..Default::default()
+                },
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            ],
+            ..Default::default()
+        };
+
+        v4l2_format {
+            type_: queue as u32,
+            fmt: bindings::v4l2_format__bindgen_ty_1 { pix_mp },
+        }
     }
 }
 
@@ -363,6 +421,58 @@ where
         }
 
         Ok(default_fmtdesc(queue))
+    }
+
+    fn enum_framesizes(
+        &mut self,
+        _session: &Self::Session,
+        _index: u32,
+        _pixelformat: u32,
+    ) -> IoctlResult<bindings::v4l2_frmsizeenum> {
+        if _index > 0 || _pixelformat != PIXELFORMAT {
+            return Err(libc::EINVAL);
+        }
+
+        Ok(bindings::v4l2_frmsizeenum {
+            index: 0,
+            pixel_format: PIXELFORMAT,
+            type_: bindings::v4l2_frmsizetypes_V4L2_FRMSIZE_TYPE_DISCRETE,
+            __bindgen_anon_1: bindings::v4l2_frmsizeenum__bindgen_ty_1 {
+                discrete: bindings::v4l2_frmsize_discrete {
+                    width: WIDTH,
+                    height: HEIGHT,
+                },
+            },
+            ..Default::default()
+        })
+    }
+
+    fn enum_frameintervals(
+        &mut self,
+        _session: &Self::Session,
+        _index: u32,
+        _pixelformat: u32,
+        _width: u32,
+        _height: u32,
+    ) -> IoctlResult<bindings::v4l2_frmivalenum> {
+        if _index > 0 || _pixelformat != PIXELFORMAT || _width != WIDTH || _height != HEIGHT {
+            return Err(libc::EINVAL);
+        }
+
+        Ok(bindings::v4l2_frmivalenum {
+            index: 0,
+            pixel_format: PIXELFORMAT,
+            width: WIDTH,
+            height: HEIGHT,
+            type_: bindings::v4l2_frmivaltypes_V4L2_FRMIVAL_TYPE_DISCRETE,
+            __bindgen_anon_1: bindings::v4l2_frmivalenum__bindgen_ty_1 {
+                discrete: bindings::v4l2_fract {
+                    numerator: 1,
+                    denominator: 30,
+                },
+            },
+            ..Default::default()
+        })
     }
 
     fn g_fmt(&mut self, _session: &Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
@@ -400,46 +510,28 @@ where
         &mut self,
         _session: &Self::Session,
         queue: QueueType,
-    ) -> IoctlResult<bindings::v4l2_streamparm> {
+    ) -> IoctlResult<v4l2_streamparm> {
         if queue != QueueType::VideoCaptureMplane {
             return Err(libc::EINVAL);
         }
 
-        let mut parm = bindings::v4l2_streamparm {
-            type_: queue as u32,
-            ..Default::default()
-        };
-
-        // SAFETY: The `parm` union is used for the capture type.
-        let capture = unsafe { &mut parm.parm.capture };
-        capture.capability = bindings::V4L2_CAP_TIMEPERFRAME;
-        capture.timeperframe = bindings::v4l2_fract {
-            numerator: 1,
-            denominator: FRAME_RATE,
-        };
-
+        let mut parm: v4l2_streamparm = Default::default();
+        parm.type_ = queue as u32;
+        unsafe {
+            parm.parm.capture.capability = bindings::V4L2_CAP_TIMEPERFRAME;
+            parm.parm.capture.timeperframe.numerator = 1;
+            parm.parm.capture.timeperframe.denominator = 30;
+        }
         Ok(parm)
     }
 
     fn s_parm(
         &mut self,
         _session: &mut Self::Session,
-        mut parm: bindings::v4l2_streamparm,
-    ) -> IoctlResult<bindings::v4l2_streamparm> {
-        if parm.type_ != QueueType::VideoCaptureMplane as u32 {
-            return Err(libc::EINVAL);
-        }
-
-        // We just return the fixed values, ignoring what the user set.
-        // SAFETY: The `parm` union is used for the capture type.
-        let capture = unsafe { &mut parm.parm.capture };
-        capture.capability = bindings::V4L2_CAP_TIMEPERFRAME;
-        capture.timeperframe = bindings::v4l2_fract {
-            numerator: 1,
-            denominator: FRAME_RATE,
-        };
-
-        Ok(parm)
+        parm: v4l2_streamparm,
+    ) -> IoctlResult<v4l2_streamparm> {
+        let queue = QueueType::n(parm.type_).ok_or(libc::EINVAL)?;
+        self.g_parm(_session, queue)
     }
 
     fn reqbufs(
@@ -499,13 +591,31 @@ where
                             .map_err(|_| libc::EINVAL)?;
 
                         let mut v4l2_buffer = V4l2Buffer::new(queue, i, MemoryType::Mmap);
+                        if queue.is_multiplanar() {
+                            v4l2_buffer.set_num_planes(3).map_err(|_| libc::EINVAL)?;
+                        }
                         if let V4l2PlanesWithBackingMut::Mmap(mut planes) =
                             v4l2_buffer.planes_with_backing_iter_mut()
                         {
-                            // SAFETY: every buffer has at least one plane.
-                            let mut plane = planes.next().unwrap();
-                            plane.set_mem_offset(offset);
-                            *plane.length = BUFFER_SIZE;
+                            if queue == QueueType::VideoCapture {
+                                // SAFETY: every buffer has at least one plane.
+                                let mut plane = planes.next().unwrap();
+                                plane.set_mem_offset(offset);
+                                *plane.length = BUFFER_SIZE;
+                            } else {
+                                // 3 planes for YU12 in MPLANE mode
+                                let mut plane0 = planes.next().unwrap();
+                                plane0.set_mem_offset(offset);
+                                *plane0.length = WIDTH * HEIGHT;
+
+                                let mut plane1 = planes.next().unwrap();
+                                plane1.set_mem_offset(offset + WIDTH * HEIGHT);
+                                *plane1.length = WIDTH * HEIGHT / 4;
+
+                                let mut plane2 = planes.next().unwrap();
+                                plane2.set_mem_offset(offset + WIDTH * HEIGHT * 5 / 4);
+                                *plane2.length = WIDTH * HEIGHT / 4;
+                            }
                         } else {
                             // SAFETY: we have just set the buffer type to MMAP. Reaching this point means a bug in
                             // the code.
@@ -531,8 +641,6 @@ where
             capabilities: (BufferCapabilities::SUPPORTS_MMAP
                 | BufferCapabilities::SUPPORTS_ORPHANED_BUFS)
                 .bits(),
-            // This device does not support V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS,
-            // so the flags field in v4l2_requestbuffers must be 0.
             flags: 0,
             ..Default::default()
         })
@@ -544,7 +652,7 @@ where
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2r::ioctl::V4l2Buffer> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCaptureMplane && queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
         let buffer = session.buffers.get(index as usize).ok_or(libc::EINVAL)?;
@@ -580,7 +688,9 @@ where
     }
 
     fn streamon(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
-        if queue != QueueType::VideoCaptureMplane || session.buffers.is_empty() {
+        if (queue != QueueType::VideoCaptureMplane && queue != QueueType::VideoCapture)
+            || session.buffers.is_empty()
+        {
             return Err(libc::EINVAL);
         }
         session.streaming = true;
@@ -591,7 +701,7 @@ where
     }
 
     fn streamoff(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCaptureMplane && queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
         session.streaming = false;
@@ -624,66 +734,5 @@ where
             Some(&input) => Ok(input),
             None => Err(libc::EINVAL),
         }
-    }
-
-    fn enum_framesizes(
-        &mut self,
-        _session: &Self::Session,
-        index: u32,
-        pixel_format: u32,
-    ) -> IoctlResult<bindings::v4l2_frmsizeenum> {
-        if pixel_format != PIXELFORMAT {
-            return Err(libc::EINVAL);
-        }
-        if index > 0 {
-            return Err(libc::EINVAL);
-        }
-
-        Ok(bindings::v4l2_frmsizeenum {
-            index,
-            pixel_format,
-            type_: bindings::v4l2_frmsizetypes_V4L2_FRMSIZE_TYPE_DISCRETE,
-            __bindgen_anon_1: bindings::v4l2_frmsizeenum__bindgen_ty_1 {
-                discrete: bindings::v4l2_frmsize_discrete {
-                    width: WIDTH,
-                    height: HEIGHT,
-                },
-            },
-            ..Default::default()
-        })
-    }
-
-    fn enum_frameintervals(
-        &mut self,
-        _session: &Self::Session,
-        index: u32,
-        pixel_format: u32,
-        width: u32,
-        height: u32,
-    ) -> IoctlResult<bindings::v4l2_frmivalenum> {
-        if pixel_format != PIXELFORMAT {
-            return Err(libc::EINVAL);
-        }
-        if width != WIDTH || height != HEIGHT {
-            return Err(libc::EINVAL);
-        }
-        if index > 0 {
-            return Err(libc::EINVAL);
-        }
-
-        Ok(bindings::v4l2_frmivalenum {
-            index,
-            pixel_format,
-            width,
-            height,
-            type_: bindings::v4l2_frmivaltypes_V4L2_FRMIVAL_TYPE_DISCRETE,
-            __bindgen_anon_1: bindings::v4l2_frmivalenum__bindgen_ty_1 {
-                discrete: bindings::v4l2_fract {
-                    numerator: 1,
-                    denominator: FRAME_RATE,
-                },
-            },
-            ..Default::default()
-        })
     }
 }
