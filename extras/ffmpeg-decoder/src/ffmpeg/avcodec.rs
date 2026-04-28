@@ -325,11 +325,11 @@ impl Iterator for AvProfileIterator {
             None => None,
             Some(profile) => {
                 match profile.profile {
-                    ffi::FF_PROFILE_UNKNOWN => None,
+                    ffi::AV_PROFILE_UNKNOWN => None,
                     _ => {
                         // SAFETY:
                         // Safe because we have been initialized to a static, valid profiles array
-                        // which is terminated by FF_PROFILE_UNKNOWN.
+                        // which is terminated by AV_PROFILE_UNKNOWN.
                         self.0 = unsafe { self.0.offset(1) };
                         Some(AvProfile(profile))
                     }
