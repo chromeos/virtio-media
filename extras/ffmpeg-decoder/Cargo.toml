@@ -8,7 +8,7 @@ anyhow = "1.0"
 enumn = "0.1.12"
 libc = "0.2.155"
 log = "0.4.20"
-nix = { version = "0.28", features = ["fs", "mman"] }
+nix = { version = "0.31.2", features = ["event", "fs", "mman"] }
 thiserror = "1.0"
 virtio-media = { path = "../../device" }
 

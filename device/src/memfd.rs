@@ -19,7 +19,7 @@ use std::ptr::NonNull;
 
 use nix::errno::Errno;
 use nix::sys::memfd::memfd_create;
-use nix::sys::memfd::MemFdCreateFlag;
+use nix::sys::memfd::MFdFlags;
 use nix::sys::mman;
 use thiserror::Error;
 
@@ -56,7 +56,7 @@ impl MemFdBuffer {
         let size = NonZeroU64::new(size).ok_or(NewMemFdBufferError::ZeroSize)?;
 
         // Dummy name, we may want to support names for debugging purposes.
-        let fd = memfd_create(c"", MemFdCreateFlag::MFD_ALLOW_SEALING)?;
+        let fd = memfd_create(c"", MFdFlags::MFD_ALLOW_SEALING)?;
 
         let file: File = fd.into();
 
