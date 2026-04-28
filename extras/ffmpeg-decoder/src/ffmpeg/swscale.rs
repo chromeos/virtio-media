@@ -24,7 +24,7 @@ pub struct SwConverter {
 /// SAFETY: safe because mutable pointers are exclusive and valid (implicit lifetime annotation).
 unsafe impl Send for SwConverter {}
 /// SAFETY: safe because it does not allow mutable aliasing.
-unsafe impl Sync for SwConverter {}  
+unsafe impl Sync for SwConverter {}
 
 #[derive(Debug, ThisError)]
 pub enum ConversionError {

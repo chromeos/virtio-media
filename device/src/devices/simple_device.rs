@@ -19,7 +19,6 @@ use std::os::fd::BorrowedFd;
 use v4l2r::bindings;
 use v4l2r::bindings::v4l2_fmtdesc;
 use v4l2r::bindings::v4l2_format;
-use v4l2r::bindings::v4l2_pix_format;
 use v4l2r::bindings::v4l2_requestbuffers;
 use v4l2r::ioctl::BufferCapabilities;
 use v4l2r::ioctl::BufferField;
@@ -448,7 +447,7 @@ where
         queue: QueueType,
         memory: MemoryType,
         count: u32,
-        flags: MemoryConsistency,
+        _flags: MemoryConsistency,
     ) -> IoctlResult<v4l2_requestbuffers> {
         if queue != QueueType::VideoCaptureMplane {
             return Err(libc::EINVAL);

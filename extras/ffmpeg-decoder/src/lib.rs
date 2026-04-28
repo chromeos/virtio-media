@@ -95,7 +95,7 @@ impl VideoDecoderBufferBacking for FfmpegDecoderBuffer {
         Ok(Self { fds })
     }
 
-    fn fd_for_plane(&self, plane_idx: usize) -> Option<BorrowedFd> {
+    fn fd_for_plane(&self, plane_idx: usize) -> Option<BorrowedFd<'_>> {
         self.fds.get(plane_idx).map(|memfd| memfd.as_file().as_fd())
     }
 }
@@ -406,7 +406,7 @@ impl FfmpegDecoderSession {
                         .events
                         .queue_event(VideoDecoderBackendEvent::InputBufferDone {
                             buffer_id: *input_index,
-                            error: 0
+                            error: 0,
                         })
                         .map_err(TrySendInputError::EventQueue)?,
                 }
@@ -755,7 +755,7 @@ impl VideoDecoderBackendSession for FfmpegDecoderSession {
         self.events.dequeue_event()
     }
 
-    fn poll_fd(&self) -> Option<BorrowedFd> {
+    fn poll_fd(&self) -> Option<BorrowedFd<'_>> {
         Some(self.events.as_fd())
     }
 
