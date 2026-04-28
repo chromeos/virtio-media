@@ -75,7 +75,7 @@ impl<T> EventQueue<T> {
 }
 
 impl<T> AsFd for EventQueue<T> {
-    fn as_fd(&self) -> BorrowedFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
         self.event.as_fd()
     }
 }
@@ -96,7 +96,7 @@ mod tests {
         event_queue
             .queue_event(VideoDecoderBackendEvent::InputBufferDone {
                 buffer_id: 1,
-                error: 0
+                error: 0,
             })
             .unwrap();
         assert_eq!(event_queue.len(), 1);
@@ -155,21 +155,21 @@ mod tests {
         event_queue
             .queue_event(VideoDecoderBackendEvent::InputBufferDone {
                 buffer_id: 1,
-                error: 0
+                error: 0,
             })
             .unwrap();
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
         event_queue
             .queue_event(VideoDecoderBackendEvent::InputBufferDone {
                 buffer_id: 2,
-                error: 0
+                error: 0,
             })
             .unwrap();
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
         event_queue
             .queue_event(VideoDecoderBackendEvent::InputBufferDone {
                 buffer_id: 3,
-                error: 0
+                error: 0,
             })
             .unwrap();
         assert_eq!(epoll.wait(&mut events, EpollTimeout::ZERO).unwrap(), 1);
