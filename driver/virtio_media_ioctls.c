@@ -65,9 +65,9 @@ static int virtio_media_send_r_ioctl(struct v4l2_fh *fh, u32 ioctl,
 		return ret;
 	}
 
-	ret = virtio_media_send_command(
-		vv, sgs, 1, 2,
-		sizeof(struct virtio_media_resp_ioctl) + ioctl_data_len, NULL);
+	ret = virtio_media_send_command(vv, sgs, 1, 2,
+					sizeof(struct virtio_media_resp_ioctl) +
+					ioctl_data_len, NULL);
 	if (ret < 0)
 		return ret;
 
@@ -131,8 +131,9 @@ static int virtio_media_send_w_ioctl(struct v4l2_fh *fh, u32 ioctl,
 	if (ret)
 		return ret;
 
-	ret = virtio_media_send_command(
-		vv, sgs, 2, 1, sizeof(struct virtio_media_resp_ioctl), NULL);
+	ret = virtio_media_send_command(vv, sgs, 2, 1,
+					sizeof(struct virtio_media_resp_ioctl),
+					NULL);
 	if (ret < 0)
 		return ret;
 
@@ -234,7 +235,10 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl,
 	struct virtio_media_session *session = fh_to_session(fh);
 	struct v4l2_plane *orig_planes = NULL;
 	struct scatterlist *sgs[64];
-	/* End of the device-readable buffer SGs, to reuse in device-writable section. */
+	/*
+	 * End of the device-readable buffer SGs, to reuse in device-writable
+	 * section.
+	 */
 	size_t num_cmd_sgs;
 	size_t end_buf_sg;
 	struct scatterlist_builder builder = {
@@ -289,9 +293,10 @@ static int virtio_media_send_buffer_ioctl(struct v4l2_fh *fh, u32 ioctl,
 			return ret;
 	}
 
-	ret = virtio_media_send_command(
-		vv, builder.sgs, num_cmd_sgs, builder.cur_sg - num_cmd_sgs,
-		sizeof(struct virtio_media_resp_ioctl) + sizeof(*b), &resp_len);
+	ret = virtio_media_send_command(vv, builder.sgs, num_cmd_sgs,
+					builder.cur_sg - num_cmd_sgs,
+					sizeof(struct virtio_media_resp_ioctl) +
+					sizeof(*b), &resp_len);
 	if (ret < 0)
 		return ret;
 
@@ -382,25 +387,31 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh, u32 ioctl,
 			return ret;
 	}
 
-	ret = virtio_media_send_command(
-		vv, builder.sgs, num_cmd_sgs, builder.cur_sg - num_cmd_sgs,
-		sizeof(struct virtio_media_resp_ioctl) + sizeof(*ctrls),
-		&resp_len);
+	ret = virtio_media_send_command(vv, builder.sgs, num_cmd_sgs,
+					builder.cur_sg - num_cmd_sgs,
+					sizeof(struct virtio_media_resp_ioctl) +
+					sizeof(*ctrls),
+					&resp_len);
 
 	/* Just in case the host touched these. */
 	ctrls->controls = controls_backup;
 	if (ctrls->count != num_ctrls) {
-		v4l2_err(
-			&vv->v4l2_dev,
-			"device returned a number of controls different than the one submitted\n");
+		v4l2_err(&vv->v4l2_dev,
+			 "device returned a number of controls different than the one submitted\n");
 	}
 	if (ctrls->count > num_ctrls)
 		return -ENOSPC;
 
-	/* Event if we have received an error, we may need to read our payload back */
+	/*
+	 * Event if we have received an error, we may need to read our payload
+	 * back.
+	 */
 	if (ret < 0 && resp_len >= sizeof(struct virtio_media_resp_ioctl) +
 					   sizeof(*ctrls)) {
-		/* Deliberately ignore the error here as we want to return the previous one */
+		/*
+		 * Deliberately ignore the error here as we want to return the
+		 * previous one.
+		 */
 		scatterlist_builder_retrieve_ext_ctrls(&builder,
 						       num_cmd_sgs + 1, ctrls);
 		return ret;
@@ -421,7 +432,8 @@ static int virtio_media_send_ext_controls_ioctl(struct v4l2_fh *fh, u32 ioctl,
 }
 
 /**
- * virtio_media_clear_queue() - clear all pending buffers on a streamed-off queue.
+ * virtio_media_clear_queue() - clear all pending buffers on a streamed-off
+ *                              queue.
  * @session: session which the queue to clear belongs to.
  * @queue: state of the queue to clear.
  *
@@ -630,7 +642,8 @@ virtio_media_subscribe_event(struct v4l2_fh *fh,
 
 	/*
 	 * Subscribing to an event may result in that event being signaled
-	 * immediately. Process all pending events to make sure we don't miss it.
+	 * immediately. Process all pending events to make sure we don't
+	 * miss it.
 	 */
 	if (sub->flags & V4L2_EVENT_SUB_FL_SEND_INITIAL)
 		virtio_media_process_events(vv);
@@ -772,7 +785,10 @@ static int virtio_media_querybuf(struct file *file, void *fh,
 		return -EINVAL;
 
 	buffer = &queue->buffers[b->index];
-	/* Set the DONE flag if the buffer is waiting in our own dequeue queue. */
+	/*
+	 * Set the DONE flag if the buffer is waiting in our own dequeue
+	 * queue.
+	 */
 	b->flags |= (buffer->buffer.flags & V4L2_BUF_FLAG_DONE);
 
 	return 0;
@@ -869,8 +885,8 @@ static int virtio_media_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 	prepared = buffer->buffer.flags & V4L2_BUF_FLAG_PREPARED;
 
 	/*
-	 * Store the buffer and plane `m` information so we can retrieve it again
-	 * when DQBUF occurs.
+	 * Store the buffer and plane `m` information so we can retrieve
+	 * it again when DQBUF occurs.
 	 */
 	if (!prepared) {
 		buffer->buffer.m = b->m;
@@ -916,8 +932,8 @@ static int virtio_media_dqbuf(struct file *file, void *fh,
 	queue = &session->queues[b->type];
 
 	/*
-	 * If a buffer with the LAST flag has been returned, subsequent calls to DQBUF
-	 * must return -EPIPE until the queue is cleared.
+	 * If a buffer with the LAST flag has been returned, subsequent
+	 * calls to DQBUF must return -EPIPE until the queue is cleared.
 	 */
 	if (queue->is_capture_last)
 		return -EPIPE;
@@ -1183,7 +1199,10 @@ const struct v4l2_ioctl_ops virtio_media_ioctl_ops = {
 	.vidioc_s_modulator = virtio_media_s_modulator,
 
 	/* Crop ioctls */
-	/* Not directly an ioctl (part of VIDIOC_CROPCAP), so no need to implement */
+	/*
+	 * Not directly an ioctl (part of VIDIOC_CROPCAP), so no need to
+	 * implement.
+	 */
 	.vidioc_g_pixelaspect = NULL,
 	.vidioc_g_selection = virtio_media_g_selection,
 	.vidioc_s_selection = virtio_media_s_selection,
@@ -1249,15 +1268,15 @@ long virtio_media_device_ioctl(struct file *file, unsigned int cmd,
 	int ret;
 
 	if (test_bit(V4L2_FL_USES_V4L2_FH, &video_dev->flags))
-		vfh = file->private_data;
+		vfh = file_to_v4l2_fh(file);
 
 	mutex_lock(&vv->vlock);
 
 	/*
-	 * We need to handle a few ioctls manually because their result rely on
-	 * vfd->tvnorms, which is normally updated by the driver as S_INPUT is
-	 * called. Since we want to just pass these ioctls through, we have to hijack
-	 * them from here.
+	 * We need to handle a few ioctls manually because their result
+	 * rely on vfd->tvnorms, which is normally updated by the driver
+	 * as S_INPUT is called. Since we want to just pass these ioctls
+	 * through, we have to hijack them from here.
 	 */
 	switch (cmd) {
 	case VIDIOC_S_STD:

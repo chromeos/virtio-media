@@ -24,7 +24,7 @@ static bool always_use_shadow_buffer;
 module_param(always_use_shadow_buffer, bool, 0660);
 
 /* Convert a V4L2 IOCTL into the IOCTL code we can give to the host */
-#define VIRTIO_MEDIA_IOCTL_CODE(IOCTL) ((IOCTL >> _IOC_NRSHIFT) & _IOC_NRMASK)
+#define VIRTIO_MEDIA_IOCTL_CODE(IOCTL) (((IOCTL) >> _IOC_NRSHIFT) & _IOC_NRMASK)
 
 /**
  * scatterlist_builder_add_descriptor() - Add a descriptor to the chain.
@@ -44,7 +44,8 @@ int scatterlist_builder_add_descriptor(struct scatterlist_builder *builder,
 }
 
 /**
- * scatterlist_builder_add_data() - Append arbitrary data to the descriptor chain.
+ * scatterlist_builder_add_data() - Append arbitrary data to the descriptor
+ *                                  chain.
  * @builder: builder to use.
  * @data: pointer to the data to add to the descriptor chain.
  * @len: length of the data to add.
@@ -409,9 +410,13 @@ int scatterlist_builder_add_buffer_userptr(struct scatterlist_builder *builder,
 
 			if (b->memory == V4L2_MEMORY_USERPTR &&
 			    plane->length > 0) {
-				ret = scatterlist_builder_add_userptr(
-					builder, plane->m.userptr,
-					plane->length);
+				unsigned long uptr = plane->m.userptr;
+				unsigned long len = plane->length;
+
+				ret =
+				scatterlist_builder_add_userptr(builder,
+								uptr,
+								len);
 				if (ret)
 					return ret;
 			}
@@ -457,9 +462,10 @@ int scatterlist_builder_retrieve_buffer(struct scatterlist_builder *builder,
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		b->m.planes = orig_planes;
 
-		if (orig_planes != NULL) {
-			ret = scatterlist_builder_retrieve_data(
-				builder, sg_index++, b->m.planes);
+		if (orig_planes) {
+			ret = scatterlist_builder_retrieve_data(builder,
+								sg_index++,
+								b->m.planes);
 			if (ret)
 				return ret;
 		}
@@ -474,7 +480,8 @@ int scatterlist_builder_retrieve_buffer(struct scatterlist_builder *builder,
  * @builder: builder to use.
  * @ctrls: ``struct v4l2_ext_controls`` to add.
  *
- * Add @ctrls and its array of `struct v4l2_ext_control` to the descriptor chain.
+ * Add @ctrls and its array of `struct v4l2_ext_control` to the descriptor
+ * chain.
  */
 int scatterlist_builder_add_ext_ctrls(struct scatterlist_builder *builder,
 				      struct v4l2_ext_controls *ctrls)
@@ -502,14 +509,16 @@ int scatterlist_builder_add_ext_ctrls(struct scatterlist_builder *builder,
  * scatterlist_builder_add_ext_ctrls_userptrs() - Add the userspace payloads of
  * a ``struct v4l2_ext_controls`` to the descriptor chain.
  * @builder: builder to use.
- * @ctrls: ``struct v4l2_ext_controls`` from which we want to add the userspace payload of.
+ * @ctrls: ``struct v4l2_ext_controls`` from which we want to add the
+ *         userspace payload of.
  *
  * Add the userspace payloads of @ctrls to the descriptor chain. This is split
  * out of :ref:`scatterlist_builder_add_ext_ctrls` because we only want to add
  * these to the device-readable part of the descriptor chain.
  */
-int scatterlist_builder_add_ext_ctrls_userptrs(
-	struct scatterlist_builder *builder, struct v4l2_ext_controls *ctrls)
+int
+scatterlist_builder_add_ext_ctrls_userptrs(struct scatterlist_builder *builder,
+					   struct v4l2_ext_controls *ctrls)
 {
 	int i;
 	int ret;
@@ -519,8 +528,10 @@ int scatterlist_builder_add_ext_ctrls_userptrs(
 		struct v4l2_ext_control *ctrl = &ctrls->controls[i];
 
 		if (ctrl->size > 0) {
-			ret = scatterlist_builder_add_userptr(
-				builder, (unsigned long)ctrl->ptr, ctrl->size);
+			unsigned long uptr = (unsigned long)ctrl->ptr;
+
+			ret = scatterlist_builder_add_userptr(builder, uptr,
+							      ctrl->size);
 			if (ret)
 				return ret;
 		}
