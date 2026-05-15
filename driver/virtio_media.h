@@ -53,9 +53,9 @@ struct virtio_media {
 	void *event_buffer;
 
 	struct list_head sessions;
-	struct mutex sessions_lock;
+	struct mutex sessions_lock; /* protects sessions list */
 
-	struct mutex events_lock;
+	struct mutex events_lock; /* prevents concurrent event processing */
 
 	union {
 		struct virtio_media_cmd_open open;
@@ -67,7 +67,7 @@ struct virtio_media {
 		struct virtio_media_resp_munmap munmap;
 	} resp;
 
-	struct mutex vlock;
+	struct mutex vlock; /* serializes command queue access */
 	wait_queue_head_t wq;
 };
 

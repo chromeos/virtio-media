@@ -77,7 +77,7 @@ struct virtio_media_queue_state {
  */
 struct virtio_media_session {
 	struct v4l2_fh fh;
-        struct file *file;
+	struct file *file;
 	u32 id;
 	bool nonblocking_dequeue;
 	bool uses_mplane;
@@ -98,7 +98,7 @@ struct virtio_media_session {
 	struct sg_table command_sgs;
 
 	struct virtio_media_queue_state queues[VIRTIO_MEDIA_LAST_QUEUE + 1];
-	struct mutex queues_lock;
+	struct mutex queues_lock; /* protects queues array and states */
 	wait_queue_head_t dqbuf_wait;
 
 	struct list_head list;

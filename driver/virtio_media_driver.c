@@ -209,7 +209,8 @@ virtio_media_find_session(struct virtio_media *vv, u32 id)
 }
 
 /**
- * struct virtio_media_cmd_callback_param - Callback parameters to the virtio command queue.
+ * struct virtio_media_cmd_callback_param - Callback parameters to the virtio
+ *                                          command queue.
  * @vv: virtio-media device in use.
  * @done: flag to be switched once the command is completed.
  * @resp_len: length of the received response from the command. Only valid
@@ -335,16 +336,18 @@ int virtio_media_send_command(struct virtio_media *vv, struct scatterlist **sgs,
 	if (resp_len)
 		*resp_len = local_resp_len;
 
-	/* If the host could not process the command, there is no valid response */
+	/*
+	 * If the host could not process the command, there is no valid
+	 * response.
+	 */
 	if (ret < 0)
 		return ret;
 
 	/* Make sure the host wrote a complete reply. */
 	if (local_resp_len < minimum_resp_len) {
-		v4l2_err(
-			&vv->v4l2_dev,
-			"received response is too short: received %zu, expected at least %zu\n",
-			local_resp_len, minimum_resp_len);
+		v4l2_err(&vv->v4l2_dev,
+			 "received response is too short: received %zu, expected at least %zu\n",
+			 local_resp_len, minimum_resp_len);
 		return -EINVAL;
 	}
 
@@ -441,9 +444,8 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 	dqbuf->buffer.m = buffer_m;
 	if (V4L2_TYPE_IS_MULTIPLANAR(dqbuf->buffer.type)) {
 		if (dqbuf->buffer.length > VIDEO_MAX_PLANES) {
-			v4l2_err(
-				&vv->v4l2_dev,
-				"invalid number of planes received from host for a multiplanar buffer\n");
+			v4l2_err(&vv->v4l2_dev,
+				 "invalid number of planes received from host for a multiplanar buffer\n");
 			return;
 		}
 		for (i = 0; i < dqbuf->buffer.length; i++) {
@@ -489,10 +491,9 @@ process_bufs:
 	while ((evt = virtqueue_get_buf(vv->eventq, &len))) {
 		/* Make sure we received enough data */
 		if (len < sizeof(*evt)) {
-			v4l2_err(
-				&vv->v4l2_dev,
-				"event is too short: got %u, expected at least %zu\n",
-				len, sizeof(*evt));
+			v4l2_err(&vv->v4l2_dev,
+				 "event is too short: got %u, expected at least %zu\n",
+				 len, sizeof(*evt));
 			goto end_of_event;
 		}
 
@@ -506,10 +507,9 @@ process_bufs:
 		switch (evt->event) {
 		case VIRTIO_MEDIA_EVT_ERROR:
 			if (len < sizeof(*error_evt)) {
-				v4l2_err(
-					&vv->v4l2_dev,
-					"error event is too short: got %u, expected %zu\n",
-					len, sizeof(*error_evt));
+				v4l2_err(&vv->v4l2_dev,
+					 "error event is too short: got %u, expected %zu\n",
+					 len, sizeof(*error_evt));
 				break;
 			}
 			error_evt = (struct virtio_media_event_error *)evt;
@@ -520,15 +520,14 @@ process_bufs:
 			break;
 
 		/*
-		 * Dequeued buffer: put it into the right queue so user-space can dequeue
-		 * it.
+		 * Dequeued buffer: put it into the right queue so user-space
+		 * can dequeue it.
 		 */
 		case VIRTIO_MEDIA_EVT_DQBUF:
 			if (len < sizeof(*dqbuf_evt)) {
-				v4l2_err(
-					&vv->v4l2_dev,
-					"dqbuf event is too short: got %u, expected %zu\n",
-					len, sizeof(*dqbuf_evt));
+				v4l2_err(&vv->v4l2_dev,
+					 "dqbuf event is too short: got %u, expected %zu\n",
+					 len, sizeof(*dqbuf_evt));
 				break;
 			}
 			dqbuf_evt = (struct virtio_media_event_dqbuf *)evt;
@@ -538,10 +537,9 @@ process_bufs:
 
 		case VIRTIO_MEDIA_EVT_EVENT:
 			if (len < sizeof(*event_evt)) {
-				v4l2_err(
-					&vv->v4l2_dev,
-					"session event is too short: got %u expected %zu\n",
-					len, sizeof(*event_evt));
+				v4l2_err(&vv->v4l2_dev,
+					 "session event is too short: got %u expected %zu\n",
+					 len, sizeof(*event_evt));
 				break;
 			}
 
@@ -769,8 +767,9 @@ static int virtio_media_device_mmap(struct file *file,
 	sg_mark_end(&resp_sg);
 
 	/*
-	 * The host performs reference counting and is smart enough to return the
-	 * same guest physical address if this is called several times on the same
+	 * The host performs reference counting and is smart enough to return
+	 * the same guest physical address if this is called several times on
+	 * the same
 	 * buffer.
 	 */
 	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(*resp_mmap),
@@ -850,9 +849,10 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	if (!vv)
 		return -ENOMEM;
 
-	vv->event_buffer = devm_kzalloc(
-		dev, VIRTIO_MEDIA_EVENT_MAX_SIZE * VIRTIO_MEDIA_NUM_EVENT_BUFS,
-		GFP_KERNEL);
+	vv->event_buffer = devm_kzalloc(dev,
+					VIRTIO_MEDIA_EVENT_MAX_SIZE *
+					VIRTIO_MEDIA_NUM_EVENT_BUFS,
+					GFP_KERNEL);
 	if (!vv->event_buffer)
 		return -ENOMEM;
 
@@ -910,8 +910,9 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 		goto err_register_device;
 
 	for (i = 0; i < VIRTIO_MEDIA_NUM_EVENT_BUFS; i++) {
-		ret = virtio_media_send_event_buffer(
-			vv, vv->event_buffer + VIRTIO_MEDIA_EVENT_MAX_SIZE * i);
+		void *ebuf = vv->event_buffer + VIRTIO_MEDIA_EVENT_MAX_SIZE * i;
+
+		ret = virtio_media_send_event_buffer(vv, ebuf);
 		if (ret)
 			goto err_send_event_buffer;
 	}

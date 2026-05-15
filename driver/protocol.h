@@ -10,6 +10,7 @@
 #define __VIRTIO_MEDIA_PROTOCOL_H
 
 #include <linux/videodev2.h>
+#include <linux/bits.h>
 
 /*
  * Virtio protocol definition.
@@ -62,7 +63,8 @@ struct virtio_media_cmd_open {
 /**
  * struct virtio_media_resp_open - Device response for VIRTIO_MEDIA_CMD_OPEN.
  * @hdr: header containing the status of the command.
- * @session_id: if hdr.status == 0, contains the id of the newly created session.
+ * @session_id: if hdr.status == 0, contains the id of the newly created
+ *              session.
  * @__reserved: must be set to zero by the device.
  */
 struct virtio_media_resp_open {
@@ -138,7 +140,8 @@ struct virtio_media_resp_ioctl {
 };
 
 /**
- * struct virtio_media_sg_entry - Description of part of a scattered guest memory.
+ * struct virtio_media_sg_entry - Description of part of a scattered guest
+ *                                memory.
  * @start: start guest address of the memory segment.
  * @len: length of this memory segment.
  * @__reserved: must be set to zero by the driver.
@@ -163,7 +166,7 @@ enum virtio_media_memory {
 	VIRTIO_MEDIA_OBJECT = V4L2_MEMORY_DMABUF,
 };
 
-#define VIRTIO_MEDIA_MMAP_FLAG_RW (1 << 0)
+#define VIRTIO_MEDIA_MMAP_FLAG_RW BIT(0)
 
 /**
  * VIRTIO_MEDIA_CMD_MMAP - Command for mapping a MMAP buffer into the driver's
@@ -177,7 +180,8 @@ enum virtio_media_memory {
  * @hdr: header with cmd member set to VIRTIO_MEDIA_CMD_MMAP.
  * @session_id: ID of the session we are mapping for.
  * @flags: combination of VIRTIO_MEDIA_MMAP_FLAG_*.
- * @offset: mem_offset field of the plane to map, as returned by VIDIOC_QUERYBUF.
+ * @offset: mem_offset field of the plane to map, as returned by
+ *          VIDIOC_QUERYBUF.
  */
 struct virtio_media_cmd_mmap {
 	struct virtio_media_cmd_header hdr;
@@ -207,7 +211,8 @@ struct virtio_media_resp_mmap {
 /**
  * struct virtio_media_cmd_munmap - Driver command for VIRTIO_MEDIA_CMD_MUNMAP.
  * @hdr: header with cmd member set to VIRTIO_MEDIA_CMD_MUNMAP.
- * @driver_addr: offset into SHM region 0 at which the buffer has been previously
+ * @driver_addr: offset into SHM region 0 at which the buffer has been
+ *               previously
  * mapped.
  */
 struct virtio_media_cmd_munmap {
@@ -216,7 +221,8 @@ struct virtio_media_cmd_munmap {
 };
 
 /**
- * struct virtio_media_resp_munmap - Device response for VIRTIO_MEDIA_CMD_MUNMAP.
+ * struct virtio_media_resp_munmap - Device response for
+ *                                   VIRTIO_MEDIA_CMD_MUNMAP.
  * @hdr: header containing the status of the command.
  */
 struct virtio_media_resp_munmap {
@@ -282,7 +288,9 @@ struct virtio_media_event_event {
 	struct v4l2_event event;
 };
 
-/* Maximum size of an event. We will queue descriptors of this size on the eventq. */
+/* Maximum size of an event. We will queue descriptors of this size on the
+ * eventq.
+ */
 #define VIRTIO_MEDIA_EVENT_MAX_SIZE sizeof(struct virtio_media_event_dqbuf)
 
 #endif // __VIRTIO_MEDIA_PROTOCOL_H
