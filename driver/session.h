@@ -63,13 +63,18 @@ struct virtio_media_queue_state {
  * @nonblocking_dequeue: whether dequeue should block or not (nonblocking if
  * file opened with O_NONBLOCK).
  * @uses_mplane: whether the queues for this session use the MPLANE API or not.
- * @cmd: union of session-related commands. A session can have one command currently running.
- * @resp: union of session-related responses. A session can wait on one command only.
+ * @cmd: union of session commands "close", "ioctl", and "mmap". A session can
+ *       have one command currently running. The rest of the commands are
+ *       handled by @struct virtio_media.
+ * @resp: union of responses to session commands "close", "ioctl", and "mmap".
+ *        A session can wait on one command only.The rest of the responses are
+ *        handled by @struct virtio_media.
  * @shadow_buf: shadow buffer where data to be added to the descriptor chain can
  * be staged before being sent to the device.
- * @command_sgs: SG table gathering descriptors for a given command and its response.
+ * @command_sgs: SG table gathering descriptors for a given command and its
+ *               response.
  * @queues: state of all the queues for this session.
- * @queues_lock: protects all members fo the queues for this session.
+ * @queues_lock: protects all members for the queues for this session.
  * virtio_media_queue_state`.
  * @dqbuf_wait: waitqueue for dequeued buffers, if ``VIDIOC_DQBUF`` needs to
  * block or when polling.
