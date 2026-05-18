@@ -152,20 +152,6 @@ struct virtio_media_sg_entry {
 	u32 __reserved;
 };
 
-/**
- * enum virtio_media_memory - Memory types supported by virtio-media.
- * @VIRTIO_MEDIA_MMAP: memory allocated and managed by device. Can be mapped
- * into the guest using VIRTIO_MEDIA_CMD_MMAP.
- * @VIRTIO_MEDIA_SHARED_PAGES: memory allocated by the driver. Passed to the
- * device using virtio_media_sg_entry.
- * @VIRTIO_MEDIA_OBJECT: memory backed by a virtio object.
- */
-enum virtio_media_memory {
-	VIRTIO_MEDIA_MMAP = V4L2_MEMORY_MMAP,
-	VIRTIO_MEDIA_SHARED_PAGES = V4L2_MEMORY_USERPTR,
-	VIRTIO_MEDIA_OBJECT = V4L2_MEMORY_DMABUF,
-};
-
 #define VIRTIO_MEDIA_MMAP_FLAG_RW BIT(0)
 
 /**
