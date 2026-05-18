@@ -229,6 +229,7 @@ struct virtio_media_resp_munmap {
 	struct virtio_media_resp_header hdr;
 };
 
+/* The values for these events are set by the virtio-media specification. */
 #define VIRTIO_MEDIA_EVT_ERROR 0
 #define VIRTIO_MEDIA_EVT_DQBUF 1
 #define VIRTIO_MEDIA_EVT_EVENT 2
@@ -259,6 +260,10 @@ struct virtio_media_event_error {
 	u32 __reserved;
 };
 
+/* This is set to VIDEO_MAX_PLANES defined in include/uapi/linux/videodev2.h.
+ * It is renamed here to match the constant that is defined in the virtio-media
+ * specification.
+ */
 #define VIRTIO_MEDIA_MAX_PLANES VIDEO_MAX_PLANES
 
 /**
