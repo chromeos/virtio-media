@@ -10,7 +10,7 @@ libc = "0.2.155"
 log = "0.4.20"
 nix = { version = "0.31.2", features = ["event", "fs", "mman"] }
 thiserror = "1.0"
-virtio-media = { path = "../../device" }
+virtio-media = { version = "0.0.7" }
 
 [build-dependencies]
 bindgen = "0.70.1"
