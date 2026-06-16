@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "virtio-media"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "enumn",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "virtio-media-ffmpeg-decoder"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "bindgen",
