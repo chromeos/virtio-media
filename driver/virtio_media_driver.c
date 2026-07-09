@@ -9,6 +9,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/dev_printk.h>
+#include <linux/ktime.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/scatterlist.h>
@@ -62,6 +63,17 @@ module_param_named(driver_name, virtio_media_driver_name, charp, 0660);
  */
 bool virtio_media_allow_userptr;
 module_param_named(allow_userptr, virtio_media_allow_userptr, bool, 0660);
+
+/*
+ * Whether to override V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC buffer timestamps
+ * with the guest system's monotonic clock upon dequeue.
+ *
+ * This is disabled by default. Enable the option if the guest applications
+ * expect timestamps to match the guest system's CLOCK_MONOTONIC timebase.
+ */
+bool virtio_media_override_timestamp;
+module_param_named(override_timestamp, virtio_media_override_timestamp, bool,
+		   0660);
 
 /**
  * virtio_media_session_alloc - Allocate a new session.
@@ -454,6 +466,19 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 			       sizeof(struct v4l2_plane));
 			dqbuf->planes[i].m = plane_m;
 		}
+	}
+
+	/*
+	 * Override buffer timestamps with the system's CLOCK_MONOTONIC timebase
+	 * upon buffer dequeue.
+	 */
+	if (virtio_media_override_timestamp &&
+	    (dqbuf->buffer.flags & V4L2_BUF_FLAG_TIMESTAMP_MASK) ==
+	     V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC) {
+		u64 now_ns = ktime_get_ns();
+		dqbuf->buffer.timestamp.tv_sec = now_ns / NSEC_PER_SEC;
+		dqbuf->buffer.timestamp.tv_usec =
+				(now_ns % NSEC_PER_SEC) / NSEC_PER_USEC;
 	}
 
 	/* Set the DONE flag as the buffer is waiting for being dequeued. */
