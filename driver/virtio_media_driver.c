@@ -18,6 +18,8 @@
 #include <linux/wait.h>
 #include <linux/workqueue.h>
 #include <linux/module.h>
+#include <linux/ktime.h>
+#include <linux/math64.h>
 #include <linux/moduleparam.h>
 #include <linux/version.h>
 #include <linux/virtio.h>
@@ -34,6 +36,17 @@
 #include "protocol.h"
 #include "session.h"
 #include "virtio_media.h"
+
+static int timestamp_mode = 0; /* Default: Passthrough */
+module_param(timestamp_mode, int, 0644);
+MODULE_PARM_DESC(
+	timestamp_mode,
+	"Timestamp sync mode: 0=Passthrough, 1=Guest-Stamping, 2=Dynamic-Translation");
+
+static unsigned long recalib_threshold_ns = 1000000000UL; /* Default: 1s */
+module_param(recalib_threshold_ns, ulong, 0644);
+MODULE_PARM_DESC(recalib_threshold_ns,
+		 "Threshold (ns) to trigger offset recalibration (default 1s)");
 
 #ifndef VIRTIO_ID_MEDIA
 #define VIRTIO_ID_MEDIA 48
@@ -73,8 +86,7 @@ module_param_named(allow_userptr, virtio_media_allow_userptr, bool, 0660);
  * The ``id`` and ``list`` fields must still be set by the caller.
  */
 static struct virtio_media_session *
-virtio_media_session_alloc(struct virtio_media *vv, u32 id,
-			   struct file *file)
+virtio_media_session_alloc(struct virtio_media *vv, u32 id, struct file *file)
 {
 	struct virtio_media_session *session;
 	int i;
@@ -100,8 +112,16 @@ virtio_media_session_alloc(struct virtio_media *vv, u32 id,
 	v4l2_fh_init(&session->fh, &vv->video_dev);
 	virtio_media_session_fh_add(session, file);
 
-	for (i = 0; i <= VIRTIO_MEDIA_LAST_QUEUE; i++)
+	for (i = 0; i <= VIRTIO_MEDIA_LAST_QUEUE; i++) {
 		INIT_LIST_HEAD(&session->queues[i].pending_dqbufs);
+		/* Seed clock translation state */
+		session->queues[i].clock_offset_ns = 0;
+		session->queues[i].last_translated_ns = 0;
+		session->queues[i].calib_frame_count = 0;
+		session->queues[i].offset_calibrated = false;
+		session->queues[i].latched_passthrough = false;
+		session->queues[i].sanity_strikes = 0;
+	}
 	mutex_init(&session->queues_lock);
 
 	init_waitqueue_head(&session->dqbuf_wait);
@@ -345,9 +365,10 @@ int virtio_media_send_command(struct virtio_media *vv, struct scatterlist **sgs,
 
 	/* Make sure the host wrote a complete reply. */
 	if (local_resp_len < minimum_resp_len) {
-		v4l2_err(&vv->v4l2_dev,
-			 "received response is too short: received %zu, expected at least %zu\n",
-			 local_resp_len, minimum_resp_len);
+		v4l2_err(
+			&vv->v4l2_dev,
+			"received response is too short: received %zu, expected at least %zu\n",
+			local_resp_len, minimum_resp_len);
 		return -EINVAL;
 	}
 
@@ -417,6 +438,9 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 	typeof(dqbuf->buffer.m) buffer_m;
 	typeof(dqbuf->buffer.m.planes[0].m) plane_m;
 	int i;
+	u32 rem;
+	u64 guest_ns, host_ns, final_guest_ns;
+	s64 current_offset, translated_ns;
 
 	if (queue_type >= ARRAY_SIZE(session->queues)) {
 		v4l2_err(&vv->v4l2_dev,
@@ -444,8 +468,9 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 	dqbuf->buffer.m = buffer_m;
 	if (V4L2_TYPE_IS_MULTIPLANAR(dqbuf->buffer.type)) {
 		if (dqbuf->buffer.length > VIDEO_MAX_PLANES) {
-			v4l2_err(&vv->v4l2_dev,
-				 "invalid number of planes received from host for a multiplanar buffer\n");
+			v4l2_err(
+				&vv->v4l2_dev,
+				"invalid number of planes received from host for a multiplanar buffer\n");
 			return;
 		}
 		for (i = 0; i < dqbuf->buffer.length; i++) {
@@ -453,6 +478,123 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 			memcpy(&dqbuf->planes[i], &dqbuf_evt->planes[i],
 			       sizeof(struct v4l2_plane));
 			dqbuf->planes[i].m = plane_m;
+		}
+	}
+
+	/*
+	 * Scope Guards (R4): Ensure translation is strictly isolated to Capture queues
+	 * containing MONOTONIC timestamps from non-M2M, physical hardware source devices.
+	 */
+	if (timestamp_mode != 0 &&
+	    !(vv->video_dev.device_caps &
+	      (V4L2_CAP_VIDEO_M2M | V4L2_CAP_VIDEO_M2M_MPLANE)) &&
+	    (queue_type == V4L2_BUF_TYPE_VIDEO_CAPTURE ||
+	     queue_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) &&
+	    (dqbuf->buffer.flags & V4L2_BUF_FLAG_TIMESTAMP_MASK) ==
+		    V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC) {
+		guest_ns = ktime_get_ns();
+		host_ns = ((u64)dqbuf_evt->buffer.timestamp.tv_sec *
+			   NSEC_PER_SEC) +
+			  ((u64)dqbuf_evt->buffer.timestamp.tv_usec *
+			   NSEC_PER_USEC);
+		current_offset = (s64)host_ns - (s64)guest_ns;
+
+		switch (timestamp_mode) {
+		case 1: /* Mode 1: Guest-Local Stamping (Option A Fallback) */
+			dqbuf->buffer.timestamp.tv_sec =
+				div_u64_rem(guest_ns, NSEC_PER_SEC, &rem);
+			dqbuf->buffer.timestamp.tv_usec = rem / NSEC_PER_USEC;
+			break;
+
+		case 2: /* Mode 2: Dynamic Offset Translation with Auto-Recalibration (Option B Primary) */
+			if (queue->latched_passthrough)
+				break;
+
+			/* 
+			 * Startup Calibration Phase (First 5 Frames):
+			 * Capture the absolute minimum offset to filter out cold-start queue delivery latency.
+			 */
+			if (!queue->offset_calibrated) {
+				if (queue->calib_frame_count < 10) {
+					if (queue->calib_frame_count == 0 ||
+					    current_offset >
+						    queue->clock_offset_ns) {
+						queue->clock_offset_ns =
+							current_offset;
+					}
+					queue->calib_frame_count++;
+					if (queue->calib_frame_count == 10) {
+						queue->offset_calibrated = true;
+						pr_info_ratelimited(
+							"virtio_media: Calibrated Cold-Start Offset: %lld ns\n",
+							queue->clock_offset_ns);
+					}
+				}
+			} else if (abs(current_offset -
+				       queue->clock_offset_ns) >
+				   (s64)recalib_threshold_ns) {
+				/* 
+				 * Step Recalibration (R3 / §4.4) - Threshold = 1s:
+				 * Reset last_translated_ns on step to prevent 1us monotonicity clamp throttling downstream.
+				 */
+				queue->clock_offset_ns = current_offset;
+				queue->last_translated_ns =
+					0; /* Reset clamp to let timeline jump cleanly */
+
+				/* Sanity checking (§4.5): Count bi-directional strikes */
+				queue->sanity_strikes++;
+				if (queue->sanity_strikes >= 3) {
+					queue->latched_passthrough = true;
+					pr_info_ratelimited(
+						"virtio_media: Wild offset jumps detected. Latching queue to passthrough.\n");
+				} else {
+					pr_info_ratelimited(
+						"virtio_media: Recalibrated Clock Offset after step: %lld ns (strike %d)\n",
+						queue->clock_offset_ns,
+						queue->sanity_strikes);
+				}
+			} else {
+				/*
+				 * Continuous Bounded Slew (R2 / §4.3) - Absorbs drift smoothly:
+				 */
+				s64 diff =
+					current_offset - queue->clock_offset_ns;
+				queue->sanity_strikes =
+					0; /* Reset strikes on any stationary sample */
+				if (diff > 0) {
+					/* Track positive delta (lower latency) instantly, capped at 1ms per frame */
+					s64 slew = diff > 1000000 ? 1000000 :
+								    diff;
+					queue->clock_offset_ns += slew;
+				} else {
+					/* Slew downwards slowly via exponential decay to ignore high-latency spikes */
+					s64 slew = diff / 1024;
+					if (slew < -1000000)
+						slew = -1000000;
+					queue->clock_offset_ns += slew;
+				}
+			}
+
+			translated_ns = (s64)host_ns - queue->clock_offset_ns;
+			final_guest_ns =
+				(translated_ns < 0) ? 0ULL : (u64)translated_ns;
+
+			/* Monotonicity Protection: Guard against small jitter inversions */
+			if (queue->last_translated_ns &&
+			    final_guest_ns <= queue->last_translated_ns) {
+				final_guest_ns =
+					queue->last_translated_ns +
+					NSEC_PER_USEC; /* Progress by 1 microsecond minimum */
+			}
+			queue->last_translated_ns = final_guest_ns;
+
+			dqbuf->buffer.timestamp.tv_sec =
+				div_u64_rem(final_guest_ns, NSEC_PER_SEC, &rem);
+			dqbuf->buffer.timestamp.tv_usec = rem / NSEC_PER_USEC;
+			break;
+
+		default:
+			break;
 		}
 	}
 
@@ -491,9 +633,10 @@ process_bufs:
 	while ((evt = virtqueue_get_buf(vv->eventq, &len))) {
 		/* Make sure we received enough data */
 		if (len < sizeof(*evt)) {
-			v4l2_err(&vv->v4l2_dev,
-				 "event is too short: got %u, expected at least %zu\n",
-				 len, sizeof(*evt));
+			v4l2_err(
+				&vv->v4l2_dev,
+				"event is too short: got %u, expected at least %zu\n",
+				len, sizeof(*evt));
 			goto end_of_event;
 		}
 
@@ -507,9 +650,10 @@ process_bufs:
 		switch (evt->event) {
 		case VIRTIO_MEDIA_EVT_ERROR:
 			if (len < sizeof(*error_evt)) {
-				v4l2_err(&vv->v4l2_dev,
-					 "error event is too short: got %u, expected %zu\n",
-					 len, sizeof(*error_evt));
+				v4l2_err(
+					&vv->v4l2_dev,
+					"error event is too short: got %u, expected %zu\n",
+					len, sizeof(*error_evt));
 				break;
 			}
 			error_evt = (struct virtio_media_event_error *)evt;
@@ -525,9 +669,10 @@ process_bufs:
 		 */
 		case VIRTIO_MEDIA_EVT_DQBUF:
 			if (len < sizeof(*dqbuf_evt)) {
-				v4l2_err(&vv->v4l2_dev,
-					 "dqbuf event is too short: got %u, expected %zu\n",
-					 len, sizeof(*dqbuf_evt));
+				v4l2_err(
+					&vv->v4l2_dev,
+					"dqbuf event is too short: got %u, expected %zu\n",
+					len, sizeof(*dqbuf_evt));
 				break;
 			}
 			dqbuf_evt = (struct virtio_media_event_dqbuf *)evt;
@@ -537,9 +682,10 @@ process_bufs:
 
 		case VIRTIO_MEDIA_EVT_EVENT:
 			if (len < sizeof(*event_evt)) {
-				v4l2_err(&vv->v4l2_dev,
-					 "session event is too short: got %u expected %zu\n",
-					 len, sizeof(*event_evt));
+				v4l2_err(
+					&vv->v4l2_dev,
+					"session event is too short: got %u expected %zu\n",
+					len, sizeof(*event_evt));
 				break;
 			}
 
@@ -849,10 +995,9 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 	if (!vv)
 		return -ENOMEM;
 
-	vv->event_buffer = devm_kzalloc(dev,
-					VIRTIO_MEDIA_EVENT_MAX_SIZE *
-					VIRTIO_MEDIA_NUM_EVENT_BUFS,
-					GFP_KERNEL);
+	vv->event_buffer = devm_kzalloc(
+		dev, VIRTIO_MEDIA_EVENT_MAX_SIZE * VIRTIO_MEDIA_NUM_EVENT_BUFS,
+		GFP_KERNEL);
 	if (!vv->event_buffer)
 		return -ENOMEM;
 

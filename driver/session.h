@@ -53,6 +53,14 @@ struct virtio_media_queue_state {
 	struct virtio_media_buffer *buffers;
 	size_t queued_bufs;
 	struct list_head pending_dqbufs;
+
+	/* Clock translation state */
+	s64 clock_offset_ns;
+	u64 last_translated_ns;
+	u32 calib_frame_count;
+	bool offset_calibrated;
+	bool latched_passthrough;
+	u8 sanity_strikes;
 };
 
 /**
