@@ -471,6 +471,14 @@ static void virtio_media_clear_queue(struct virtio_media_session *session,
 	queue->streaming = false;
 	queue->is_capture_last = false;
 
+	/* Reset the clock translation state on streamoff */
+	queue->clock_offset_ns = 0;
+	queue->last_translated_ns = 0;
+	queue->calib_frame_count = 0;
+	queue->offset_calibrated = false;
+	queue->latched_passthrough = false;
+	queue->sanity_strikes = 0;
+
 	mutex_unlock(&session->queues_lock);
 }
 
