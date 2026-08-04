@@ -33,3 +33,9 @@ pub mod v4l2_device_proxy;
 pub use v4l2_device_proxy::V4l2ProxyDevice;
 
 pub mod video_decoder;
+
+pub mod capture_device;
+pub use capture_device::CaptureDevice;
+
+pub mod test_capture_backend;
+pub use test_capture_backend::TestCaptureBackend;
