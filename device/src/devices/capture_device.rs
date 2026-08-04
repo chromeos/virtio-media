@@ -49,8 +49,10 @@ use crate::protocol::SgEntry;
 use crate::protocol::V4l2Event;
 use crate::protocol::V4l2Ioctl;
 use crate::protocol::VIRTIO_MEDIA_MMAP_FLAG_RW;
+use crate::GuestMemoryRange;
 use crate::ReadFromDescriptorChain;
 use crate::VirtioMediaDevice;
+use crate::VirtioMediaGuestMemoryMapper;
 use crate::VirtioMediaDeviceSession;
 use crate::VirtioMediaEventQueue;
 use crate::VirtioMediaHostMemoryMapper;
@@ -318,14 +320,25 @@ enum BufferState {
     Outgoing,
 }
 
-struct Buffer {
-    state: BufferState,
-    v4l2_buffer: V4l2Buffer,
-    fd: MemFdBuffer,
-    offset: u32,
+/// Storage behind a buffer, depending on the memory type the guest chose at REQBUFS.
+enum BufferBacking<M: VirtioMediaGuestMemoryMapper> {
+    /// Host-allocated memfd, mapped into the guest on request.
+    Mmap { fd: MemFdBuffer, offset: u32 },
+    /// Guest-provided memory. The SG list arrives with each QBUF; the mapping is held until the
+    /// frame has been written and is dropped before the dequeue event is sent, since some mapper
+    /// implementations only write back into guest memory at destruction time.
+    UserPtr {
+        mapping: Option<M::GuestMemoryMapping>,
+    },
 }
 
-impl Buffer {
+struct Buffer<M: VirtioMediaGuestMemoryMapper> {
+    state: BufferState,
+    v4l2_buffer: V4l2Buffer,
+    backing: BufferBacking<M>,
+}
+
+impl<M: VirtioMediaGuestMemoryMapper> Buffer<M> {
     fn set_queued(&mut self) {
         *self.v4l2_buffer.get_first_plane_mut().bytesused = 0;
         // Clear DONE as well: A re-queued buffer still carries it from its previous dequeue.
@@ -335,6 +348,10 @@ impl Buffer {
     }
 
     fn set_new(&mut self) {
+        // A queued-but-undelivered USERPTR mapping is released on streamoff.
+        if let BufferBacking::UserPtr { mapping } = &mut self.backing {
+            *mapping = None;
+        }
         *self.v4l2_buffer.get_first_plane_mut().bytesused = 0;
         let flags = self.v4l2_buffer.flags() - BufferFlags::QUEUED - BufferFlags::DONE;
         self.v4l2_buffer.set_flags(flags);
@@ -358,16 +375,16 @@ impl Buffer {
 // Session
 // ---------------------------------------------------------------------------------------------
 
-pub struct CaptureDeviceSession {
+pub struct CaptureDeviceSession<M: VirtioMediaGuestMemoryMapper> {
     id: u32,
-    buffers: Vec<Buffer>,
+    buffers: Vec<Buffer<M>>,
     /// FIFO of buffer indices awaiting a frame.
     queued_buffers: VecDeque<usize>,
     streaming: bool,
     eventfd: EventFd,
 }
 
-impl VirtioMediaDeviceSession for CaptureDeviceSession {
+impl<M: VirtioMediaGuestMemoryMapper> VirtioMediaDeviceSession for CaptureDeviceSession<M> {
     fn poll_fd(&self) -> Option<BorrowedFd<'_>> {
         Some(self.eventfd.as_fd())
     }
@@ -384,10 +401,12 @@ impl VirtioMediaDeviceSession for CaptureDeviceSession {
 /// sized for.
 pub struct CaptureDevice<
     B: CaptureBackend,
+    M: VirtioMediaGuestMemoryMapper,
     Q: VirtioMediaEventQueue,
     HM: VirtioMediaHostMemoryMapper,
 > {
     evt_queue: Q,
+    mem: M,
     mmap_manager: MmapMappingManager<HM>,
     backend: B,
     /// The backend's current configuration.
@@ -398,13 +417,14 @@ pub struct CaptureDevice<
     active_session: Option<u32>,
 }
 
-impl<B, Q, HM> CaptureDevice<B, Q, HM>
+impl<B, M, Q, HM> CaptureDevice<B, M, Q, HM>
 where
     B: CaptureBackend,
+    M: VirtioMediaGuestMemoryMapper,
     Q: VirtioMediaEventQueue,
     HM: VirtioMediaHostMemoryMapper,
 {
-    pub fn new(evt_queue: Q, mapper: HM, mut backend: B) -> anyhow::Result<Self> {
+    pub fn new(evt_queue: Q, mem: M, mapper: HM, mut backend: B) -> anyhow::Result<Self> {
         // Configure up front so a session going straight from G_FMT to REQBUFS still sizes its
         // buffers from a real frame_size rather than an estimate.
         let entry = backend
@@ -417,6 +437,7 @@ where
 
         Ok(Self {
             evt_queue,
+            mem,
             mmap_manager: MmapMappingManager::from(mapper),
             backend,
             current: FormatEntry {
@@ -447,7 +468,7 @@ where
     }
 
     /// Move frames from the backend into queued guest buffers.
-    fn deliver_frames(&mut self, session: &mut CaptureDeviceSession) -> IoctlResult<()> {
+    fn deliver_frames(&mut self, session: &mut CaptureDeviceSession<M>) -> IoctlResult<()> {
         while let Some(frame) = self.backend.try_next_frame() {
             let Some(buf_id) = session.queued_buffers.pop_front() else {
                 // Nobody is waiting for this frame. Dropping it is correct camera behaviour.
@@ -466,18 +487,39 @@ where
                 );
             }
 
-            // `impl Write for &File` and `impl Seek for &File` mean a mut binding on the shared
-            // reference suffices. The buffer's file is never mutably borrowed.
-            let mut file = buffer.fd.as_file();
-            let mut write = file.seek(SeekFrom::Start(0)).map(|_| ());
-            if write.is_ok() {
-                write = file.write_all(&frame.data[..len]);
-            }
-            if let Err(e) = write {
-                log::error!("writing frame into guest buffer: {e}");
-                // Give the buffer back rather than losing it.
-                session.queued_buffers.push_front(buf_id);
-                return Err(libc::EIO);
+            match &mut buffer.backing {
+                BufferBacking::Mmap { fd, .. } => {
+                    // `impl Write for &File` and `impl Seek for &File` mean a mut binding on the
+                    // shared reference suffices. The buffer's file is never mutably borrowed.
+                    let mut file = fd.as_file();
+                    let mut write = file.seek(SeekFrom::Start(0)).map(|_| ());
+                    if write.is_ok() {
+                        write = file.write_all(&frame.data[..len]);
+                    }
+                    if let Err(e) = write {
+                        log::error!("writing frame into guest buffer: {e}");
+                        // Give the buffer back rather than losing it.
+                        session.queued_buffers.push_front(buf_id);
+                        return Err(libc::EIO);
+                    }
+                }
+                BufferBacking::UserPtr { mapping } => {
+                    let Some(mut map) = mapping.take() else {
+                        log::error!("USERPTR buffer queued without a mapping");
+                        session.queued_buffers.push_front(buf_id);
+                        return Err(libc::EIO);
+                    };
+                    // SAFETY: qbuf validated the guest plane length against frame_size, and the
+                    // mapping is a linear host view of that plane, so `len <= frame_size` bytes
+                    // fit.
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(frame.data.as_ptr(), map.as_mut_ptr(), len);
+                    }
+                    // Drop the mapping BEFORE sending the dequeue event: some mapper
+                    // implementations only write back into guest memory at destruction time, and
+                    // an event sent first would race the guest reading uncommitted data.
+                    drop(map);
+                }
             }
 
             buffer.set_done(&frame, len as u32);
@@ -491,7 +533,7 @@ where
         Ok(())
     }
 
-    fn stop_streaming(&mut self, session: &mut CaptureDeviceSession) {
+    fn stop_streaming(&mut self, session: &mut CaptureDeviceSession<M>) {
         if session.streaming {
             let _ = self.backend.stop();
             session.streaming = false;
@@ -503,15 +545,16 @@ where
     }
 }
 
-impl<B, Q, HM, Reader, Writer> VirtioMediaDevice<Reader, Writer> for CaptureDevice<B, Q, HM>
+impl<B, M, Q, HM, Reader, Writer> VirtioMediaDevice<Reader, Writer> for CaptureDevice<B, M, Q, HM>
 where
     B: CaptureBackend,
+    M: VirtioMediaGuestMemoryMapper,
     Q: VirtioMediaEventQueue,
     HM: VirtioMediaHostMemoryMapper,
     Reader: ReadFromDescriptorChain,
     Writer: WriteToDescriptorChain,
 {
-    type Session = CaptureDeviceSession;
+    type Session = CaptureDeviceSession<M>;
 
     fn new_session(&mut self, session_id: u32) -> Result<Self::Session, i32> {
         let eventfd = EventFd::new().map_err(|e| {
@@ -533,7 +576,9 @@ where
             self.active_session = None;
         }
         for buffer in &session.buffers {
-            self.mmap_manager.unregister_buffer(buffer.offset);
+            if let BufferBacking::Mmap { offset, .. } = buffer.backing {
+                self.mmap_manager.unregister_buffer(offset);
+            }
         }
     }
 
@@ -553,13 +598,17 @@ where
         flags: u32,
         offset: u32,
     ) -> Result<(u64, u64), i32> {
-        let buffer = session
+        let fd = session
             .buffers
-            .iter_mut()
-            .find(|b| b.offset == offset)
-            .ok_or(libc::EINVAL)?;
+            .iter()
+            .find_map(|b| match &b.backing {
+                BufferBacking::Mmap { fd, offset: o } if *o == offset => Some(fd),
+                _ => None,
+            })
+            .ok_or(libc::EINVAL)?
+            .as_file()
+            .as_fd();
         let rw = (flags & VIRTIO_MEDIA_MMAP_FLAG_RW) != 0;
-        let fd = buffer.fd.as_file().as_fd();
         self.mmap_manager
             .create_mapping(offset, fd, rw)
             .map_err(|_| libc::EINVAL)
@@ -587,13 +636,14 @@ where
 // Ioctls
 // ---------------------------------------------------------------------------------------------
 
-impl<B, Q, HM> VirtioMediaIoctlHandler for CaptureDevice<B, Q, HM>
+impl<B, M, Q, HM> VirtioMediaIoctlHandler for CaptureDevice<B, M, Q, HM>
 where
     B: CaptureBackend,
+    M: VirtioMediaGuestMemoryMapper,
     Q: VirtioMediaEventQueue,
     HM: VirtioMediaHostMemoryMapper,
 {
-    type Session = CaptureDeviceSession;
+    type Session = CaptureDeviceSession<M>;
 
     fn enum_fmt(
         &mut self,
@@ -801,9 +851,7 @@ where
         if queue != QUEUE_TYPE {
             return Err(libc::EINVAL);
         }
-        // MMAP only for now. USERPTR matters for the vhost-user path, where mapping host memory
-        // into the guest is the hard part.
-        if memory != MemoryType::Mmap {
+        if memory != MemoryType::Mmap && memory != MemoryType::UserPtr {
             return Err(libc::EINVAL);
         }
         if session.streaming {
@@ -834,48 +882,69 @@ where
 
         // Release the previous allocation. With count == 0 this leaves the session with none.
         for buffer in &session.buffers {
-            self.mmap_manager.unregister_buffer(buffer.offset);
+            if let BufferBacking::Mmap { offset, .. } = buffer.backing {
+                self.mmap_manager.unregister_buffer(offset);
+            }
         }
 
         session.buffers = (0..count)
             .map(|i| {
-                let fd = MemFdBuffer::new(buffer_size as u64).map_err(|e| {
-                    log::error!("failed to allocate MMAP buffer: {:#}", e);
-                    libc::ENOMEM
-                })?;
-                let offset = self
-                    .mmap_manager
-                    .register_buffer(None, buffer_size)
-                    .map_err(|_| libc::EINVAL)?;
+                let (v4l2_buffer, backing) = match memory {
+                    MemoryType::Mmap => {
+                        let fd = MemFdBuffer::new(buffer_size as u64).map_err(|e| {
+                            log::error!("failed to allocate MMAP buffer: {:#}", e);
+                            libc::ENOMEM
+                        })?;
+                        let offset = self
+                            .mmap_manager
+                            .register_buffer(None, buffer_size)
+                            .map_err(|_| libc::EINVAL)?;
 
-                let mut v4l2_buffer = V4l2Buffer::new(queue, i, MemoryType::Mmap);
-                if let V4l2PlanesWithBackingMut::Mmap(mut planes) =
-                    v4l2_buffer.planes_with_backing_iter_mut()
-                {
-                    // Every buffer has at least one plane.
-                    let mut plane = planes.next().unwrap();
-                    plane.set_mem_offset(offset);
-                    *plane.length = buffer_size;
-                } else {
-                    panic!("buffer was just created as MMAP");
-                }
+                        let mut v4l2_buffer = V4l2Buffer::new(queue, i, MemoryType::Mmap);
+                        if let V4l2PlanesWithBackingMut::Mmap(mut planes) =
+                            v4l2_buffer.planes_with_backing_iter_mut()
+                        {
+                            // Every buffer has at least one plane.
+                            let mut plane = planes.next().unwrap();
+                            plane.set_mem_offset(offset);
+                            *plane.length = buffer_size;
+                        } else {
+                            panic!("buffer was just created as MMAP");
+                        }
+                        (v4l2_buffer, BufferBacking::Mmap { fd, offset })
+                    }
+                    // The guest provides the memory with each QBUF. Nothing to allocate here, but
+                    // the plane length must report the size the device requires, since that is how
+                    // applications learn how large their buffers must be.
+                    _ => {
+                        let mut v4l2_buffer = V4l2Buffer::new(queue, i, MemoryType::UserPtr);
+                        if let V4l2PlanesWithBackingMut::UserPtr(mut planes) =
+                            v4l2_buffer.planes_with_backing_iter_mut()
+                        {
+                            *planes.next().unwrap().length = buffer_size;
+                        }
+                        (v4l2_buffer, BufferBacking::UserPtr { mapping: None })
+                    }
+                };
+
+                let mut v4l2_buffer = v4l2_buffer;
                 v4l2_buffer.set_field(BufferField::None);
                 v4l2_buffer.set_flags(BufferFlags::TIMESTAMP_MONOTONIC);
 
                 Ok(Buffer {
                     state: BufferState::New,
                     v4l2_buffer,
-                    fd,
-                    offset,
+                    backing,
                 })
             })
-            .collect::<Result<Vec<Buffer>, i32>>()?;
+            .collect::<Result<Vec<Buffer<M>>, i32>>()?;
 
         Ok(v4l2_requestbuffers {
             count,
             type_: queue as u32,
             memory: memory as u32,
             capabilities: (BufferCapabilities::SUPPORTS_MMAP
+                | BufferCapabilities::SUPPORTS_USERPTR
                 | BufferCapabilities::SUPPORTS_ORPHANED_BUFS)
                 .bits(),
             // Must be 0 unless V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS is advertised.
@@ -901,7 +970,7 @@ where
         &mut self,
         session: &mut Self::Session,
         buffer: V4l2Buffer,
-        _guest_regions: Vec<Vec<SgEntry>>,
+        mut guest_regions: Vec<Vec<SgEntry>>,
     ) -> IoctlResult<V4l2Buffer> {
         let index = buffer.index() as usize;
         let host_buffer = session.buffers.get_mut(index).ok_or(libc::EINVAL)?;
@@ -909,6 +978,37 @@ where
         if matches!(host_buffer.state, BufferState::Incoming) {
             return Err(libc::EINVAL);
         }
+
+        if let BufferBacking::UserPtr { mapping } = &mut host_buffer.backing {
+            // The guest provides the memory with each QBUF: adopt its buffer (userptr and length
+            // travel back to it in the dequeue event) and map the SG list now, so a bad list fails
+            // here with EINVAL rather than at delivery time.
+            let plane_length = if let v4l2r::ioctl::V4l2PlanesWithBacking::UserPtr(mut planes) =
+                buffer.planes_with_backing_iter()
+            {
+                planes.next().map(|p| *p.length).unwrap_or(0)
+            } else {
+                return Err(libc::EINVAL);
+            };
+            if (plane_length as u64) < self.info.frame_size as u64 {
+                return Err(libc::EINVAL);
+            }
+            let regions = if guest_regions.is_empty() {
+                return Err(libc::EINVAL);
+            } else {
+                guest_regions.swap_remove(0)
+            };
+            let map = self.mem.new_mapping(regions).map_err(|e| {
+                log::error!("mapping guest USERPTR buffer: {:#}", e);
+                libc::EINVAL
+            })?;
+            *mapping = Some(map);
+            host_buffer.v4l2_buffer = buffer;
+            // Guest-supplied flags (cache hints and the like) must not survive into what we
+            // report back. Reset to the same baseline MMAP buffers get at allocation.
+            host_buffer.v4l2_buffer.set_flags(BufferFlags::TIMESTAMP_MONOTONIC);
+        }
+
         host_buffer.set_queued();
         session.queued_buffers.push_back(index);
         let ret = host_buffer.v4l2_buffer.clone();
