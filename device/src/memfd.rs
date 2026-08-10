@@ -54,6 +54,12 @@ pub enum MemFdMmapError {
 impl MemFdBuffer {
     pub fn new(size: u64) -> Result<Self, NewMemFdBufferError> {
         let size = NonZeroU64::new(size).ok_or(NewMemFdBufferError::ZeroSize)?;
+        // Round up to page granularity: host memory mappers (e.g. vhost-user
+        // SHMEM_MAP into QEMU) mmap at page granularity and require the
+        // backing file to cover the entire mapped range. The memfd is sealed
+        // against growth below, so this must happen at creation time.
+        let size = NonZeroU64::new(size.get().div_ceil(4096) * 4096)
+            .expect("page-rounding a nonzero size cannot yield zero");
 
         // Dummy name, we may want to support names for debugging purposes.
         let fd = memfd_create(c"", MFdFlags::MFD_ALLOW_SEALING)?;
