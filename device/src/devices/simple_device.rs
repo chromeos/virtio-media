@@ -19,6 +19,7 @@ use std::os::fd::BorrowedFd;
 use v4l2r::bindings;
 use v4l2r::bindings::v4l2_fmtdesc;
 use v4l2r::bindings::v4l2_format;
+use v4l2r::bindings::v4l2_pix_format;
 use v4l2r::bindings::v4l2_requestbuffers;
 use v4l2r::ioctl::BufferCapabilities;
 use v4l2r::ioctl::BufferField;
@@ -141,18 +142,13 @@ impl SimpleCaptureDeviceSession {
                 .seek(SeekFrom::Start(0))
                 .map_err(|_| libc::EIO)?;
             let mut writer = BufWriter::new(buffer.fd.as_file());
-            let y = (sequence % 256) as u8;
-            let u = ((sequence + 64) % 256) as u8;
-            let v = ((sequence + 128) % 256) as u8;
-
+            let color = [
+                0xffu8 * (sequence as u8 % 2),
+                0x55u8 * (sequence as u8 % 3),
+                0x10u8 * (sequence as u8 % 16),
+            ];
             for _ in 0..(WIDTH * HEIGHT) {
-                writer.write_all(&[y]).map_err(|_| libc::EIO)?;
-            }
-            for _ in 0..(WIDTH * HEIGHT / 4) {
-                writer.write_all(&[u]).map_err(|_| libc::EIO)?;
-            }
-            for _ in 0..(WIDTH * HEIGHT / 4) {
-                writer.write_all(&[v]).map_err(|_| libc::EIO)?;
+                let _ = writer.write(&color).map_err(|_| libc::EIO)?;
             }
             drop(writer);
 
@@ -279,11 +275,12 @@ where
     }
 }
 
-const PIXELFORMAT: u32 = PixelFormat::from_fourcc(b"YU12").to_u32();
+const PIXELFORMAT: u32 = PixelFormat::from_fourcc(b"RGB3").to_u32();
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
 const FRAME_RATE: u32 = 30;
-const BUFFER_SIZE: u32 = WIDTH * HEIGHT * 3 / 2;
+const BYTES_PER_LINE: u32 = WIDTH * 3;
+const BUFFER_SIZE: u32 = BYTES_PER_LINE * HEIGHT;
 
 const INPUTS: [bindings::v4l2_input; 1] = [bindings::v4l2_input {
     index: 0,
@@ -302,41 +299,20 @@ fn default_fmtdesc(queue: QueueType) -> v4l2_fmtdesc {
 }
 
 fn default_fmt(queue: QueueType) -> v4l2_format {
-    let pix_mp = bindings::v4l2_pix_format_mplane {
+    let pix = v4l2_pix_format {
         width: WIDTH,
         height: HEIGHT,
         pixelformat: PIXELFORMAT,
         field: bindings::v4l2_field_V4L2_FIELD_NONE,
+        bytesperline: BYTES_PER_LINE,
+        sizeimage: BUFFER_SIZE,
         colorspace: bindings::v4l2_colorspace_V4L2_COLORSPACE_SRGB,
-        num_planes: 3,
-        plane_fmt: [
-            bindings::v4l2_plane_pix_format {
-                sizeimage: WIDTH * HEIGHT,
-                bytesperline: WIDTH,
-                ..Default::default()
-            },
-            bindings::v4l2_plane_pix_format {
-                sizeimage: WIDTH * HEIGHT / 4,
-                bytesperline: WIDTH / 2,
-                ..Default::default()
-            },
-            bindings::v4l2_plane_pix_format {
-                sizeimage: WIDTH * HEIGHT / 4,
-                bytesperline: WIDTH / 2,
-                ..Default::default()
-            },
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        ],
         ..Default::default()
     };
 
     v4l2_format {
         type_: queue as u32,
-        fmt: bindings::v4l2_format__bindgen_ty_1 { pix_mp },
+        fmt: bindings::v4l2_format__bindgen_ty_1 { pix },
     }
 }
 
@@ -354,7 +330,7 @@ where
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2_fmtdesc> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
         if index > 0 {
@@ -365,9 +341,10 @@ where
     }
 
     fn g_fmt(&mut self, _session: &Self::Session, queue: QueueType) -> IoctlResult<v4l2_format> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
+
         Ok(default_fmt(queue))
     }
 
@@ -377,9 +354,10 @@ where
         queue: QueueType,
         _format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
+
         Ok(default_fmt(queue))
     }
 
@@ -389,9 +367,10 @@ where
         queue: QueueType,
         _format: v4l2_format,
     ) -> IoctlResult<v4l2_format> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
+
         Ok(default_fmt(queue))
     }
 
@@ -400,7 +379,7 @@ where
         _session: &Self::Session,
         queue: QueueType,
     ) -> IoctlResult<bindings::v4l2_streamparm> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
 
@@ -425,7 +404,7 @@ where
         _session: &mut Self::Session,
         mut parm: bindings::v4l2_streamparm,
     ) -> IoctlResult<bindings::v4l2_streamparm> {
-        if parm.type_ != QueueType::VideoCaptureMplane as u32 {
+        if parm.type_ != QueueType::VideoCapture as u32 {
             return Err(libc::EINVAL);
         }
 
@@ -449,7 +428,7 @@ where
         count: u32,
         _flags: MemoryConsistency,
     ) -> IoctlResult<v4l2_requestbuffers> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
         if memory != MemoryType::Mmap {
@@ -497,7 +476,8 @@ where
                             .register_buffer(None, BUFFER_SIZE)
                             .map_err(|_| libc::EINVAL)?;
 
-                        let mut v4l2_buffer = V4l2Buffer::new(queue, i, MemoryType::Mmap);
+                        let mut v4l2_buffer =
+                            V4l2Buffer::new(QueueType::VideoCapture, i, MemoryType::Mmap);
                         if let V4l2PlanesWithBackingMut::Mmap(mut planes) =
                             v4l2_buffer.planes_with_backing_iter_mut()
                         {
@@ -543,7 +523,7 @@ where
         queue: QueueType,
         index: u32,
     ) -> IoctlResult<v4l2r::ioctl::V4l2Buffer> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
         let buffer = session.buffers.get(index as usize).ok_or(libc::EINVAL)?;
@@ -579,7 +559,7 @@ where
     }
 
     fn streamon(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
-        if queue != QueueType::VideoCaptureMplane || session.buffers.is_empty() {
+        if queue != QueueType::VideoCapture || session.buffers.is_empty() {
             return Err(libc::EINVAL);
         }
         session.streaming = true;
@@ -590,7 +570,7 @@ where
     }
 
     fn streamoff(&mut self, session: &mut Self::Session, queue: QueueType) -> IoctlResult<()> {
-        if queue != QueueType::VideoCaptureMplane {
+        if queue != QueueType::VideoCapture {
             return Err(libc::EINVAL);
         }
         session.streaming = false;
