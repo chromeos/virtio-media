@@ -291,6 +291,16 @@ impl DequeueBufferEvent {
             v4l2_buffer,
         }
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        // SAFETY: `DequeueBufferEvent` is a C-compatible struct with no padding and fully initialized bytes.
+        unsafe {
+            std::slice::from_raw_parts(
+                self as *const Self as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        }
+    }
 }
 
 #[repr(C)]
@@ -304,6 +314,16 @@ impl SessionEvent {
         Self {
             hdr: EventHeader::new(VIRTIO_MEDIA_EVENT_EVENT, session_id),
             v4l2_event,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        // SAFETY: `SessionEvent` is a C-compatible struct with no padding and fully initialized bytes.
+        unsafe {
+            std::slice::from_raw_parts(
+                self as *const Self as *const u8,
+                std::mem::size_of::<Self>(),
+            )
         }
     }
 }
