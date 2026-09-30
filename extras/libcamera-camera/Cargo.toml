@@ -1,0 +1,16 @@
+[package]
+name = "virtio-media-libcamera"
+version = "0.0.1"
+license = "BSD-3-Clause"
+description = "libcamera capture backend for virtio-media"
+repository = "https://github.com/chromeos/virtio-media"
+authors = ["The ChromiumOS Authors"]
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.32"
+libc = "0.2.151"
+log = "0.4.20"
+# Supports libcamera 0.4.0 through 0.7.0 and refuses older versions at build time. See README.md.
+libcamera = "0.7"
+virtio-media = { path = "../../device" }
