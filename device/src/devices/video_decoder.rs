@@ -1302,6 +1302,9 @@ where
                     }
                     session.try_send_pending_output_buffers()?;
                 }
+                // START also ends the implicit drain of a resolution change, after which the
+                // state is still `Running`.
+                session.backend_session.resume();
             }
             DecoderCmd::Pause { .. } => {
                 if matches!(session.state, VideoDecoderStreamingState::Running) {
