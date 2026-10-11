@@ -134,6 +134,20 @@ impl FromDescriptorChain for (V4l2Buffer, Vec<Vec<SgEntry>>) {
             None
         };
 
+        // An MMAP plane's length is the device's, whatever the guest passed (V4L2 ignores it, and
+        // clients that read it from DQBUF pass it back as given): the device checks bytesused
+        // against the buffer it allocated.
+        let (mut v4l2_buffer, mut v4l2_planes) = (v4l2_buffer, v4l2_planes);
+        if v4l2_buffer.memory == MemoryType::Mmap as u32 {
+            if let Some(planes) = v4l2_planes.as_mut() {
+                for plane in planes.iter_mut() {
+                    plane.length = plane.length.max(plane.bytesused);
+                }
+            } else {
+                v4l2_buffer.length = v4l2_buffer.length.max(v4l2_buffer.bytesused);
+            }
+        }
+
         let v4l2_buffer = V4l2Buffer::try_from(UncheckedV4l2Buffer(v4l2_buffer, v4l2_planes))
             .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
 

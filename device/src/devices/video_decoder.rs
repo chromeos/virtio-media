@@ -85,7 +85,10 @@ impl<S: VideoDecoderBufferBacking> VideoDecoderBuffer<S> {
             panic!()
         }
 
-        v4l2_buffer.set_flags(BufferFlags::TIMESTAMP_MONOTONIC);
+        // A decoder's frames carry the timestamps their OUTPUT buffers came with, on both queues
+        // (V4L2 sets TIMESTAMP_COPY for a memory-to-memory device): clients set an OUTPUT
+        // buffer's timestamp only when its flags say so.
+        v4l2_buffer.set_flags(BufferFlags::TIMESTAMP_COPY);
         v4l2_buffer.set_field(BufferField::None);
 
         Ok(Self {
@@ -290,6 +293,18 @@ impl VideoDecoderStreamingState {
         }
     }
 
+    fn is_input_streaming(&mut self) -> bool {
+        matches!(
+            self,
+            Self::Running
+                | Self::Paused
+                | Self::Stopped {
+                    input_streaming: true,
+                    ..
+                }
+        )
+    }
+
     fn is_output_streaming(&mut self) -> bool {
         matches!(
             self,
@@ -373,8 +388,14 @@ pub struct VideoDecoderSession<S: VideoDecoderBackendSession> {
     /// Indices of CAPTURE buffers that are queued but not send to the backend yet because the
     /// decoder is not running.
     pending_output_buffers: Vec<u32>,
+    /// Indices of OUTPUT buffers that are queued but not decoded yet because the OUTPUT queue is
+    /// not streaming: V4L2 holds a buffer queued before `STREAMON` until it.
+    pending_input_buffers: Vec<u32>,
 
     sequence_cpt: u32,
+    /// The next OUTPUT buffer's sequence number: V4L2 numbers each queue's buffers in the order
+    /// it returns them, from 0 at each STREAMON.
+    input_sequence: u32,
 
     /// Whether the input source change event has been subscribed to by the driver. If `true` then
     /// the device will emit resolution change events.
@@ -468,6 +489,45 @@ impl<S: VideoDecoderBackendSession> VideoDecoderSession<S> {
         }
 
         Ok(())
+    }
+
+    /// Decodes the OUTPUT buffers queued before the OUTPUT queue was streaming, in the order they
+    /// were queued.
+    fn try_send_pending_input_buffers(&mut self) -> IoctlResult<()> {
+        if !self.state.is_input_streaming() {
+            return Ok(());
+        }
+
+        for i in std::mem::take(&mut self.pending_input_buffers) {
+            self.decode_input(i)?;
+        }
+
+        Ok(())
+    }
+
+    /// Sends a queued OUTPUT buffer to the backend.
+    fn decode_input(&mut self, index: u32) -> IoctlResult<()> {
+        let host_buffer = self
+            .input_buffers
+            .get_mut(index as usize)
+            .ok_or(libc::EINVAL)?;
+        let bytes_used = {
+            let first_plane = host_buffer.v4l2_buffer.get_first_plane();
+            // V4L2's spec mentions that if `bytes_used == 0` then the whole buffer is considered to be
+            // used.
+            if *first_plane.bytesused == 0 {
+                *first_plane.length
+            } else {
+                *first_plane.bytesused
+            }
+        };
+
+        self.backend_session.decode(
+            &host_buffer.backing,
+            host_buffer.index(),
+            host_buffer.timestamp(),
+            bytes_used,
+        )
     }
 }
 
@@ -605,7 +665,9 @@ where
             input_buffers: Default::default(),
             output_buffers: Default::default(),
             pending_output_buffers: Default::default(),
+            pending_input_buffers: Default::default(),
             sequence_cpt: 0,
+            input_sequence: 0,
             src_change_subscribed: false,
             eos_subscribed: false,
             crop_rectangle: CropRectangle::Settable(v4l2r::Rect::new(0, 0, 0, 0)),
@@ -704,6 +766,8 @@ where
                     };
 
                     buffer.v4l2_buffer.clear_flags(BufferFlags::QUEUED);
+                    buffer.v4l2_buffer.set_sequence(session.input_sequence);
+                    session.input_sequence += 1;
 
                     if error != 0 {
                         buffer.v4l2_buffer.set_flags(BufferFlags::ERROR);
@@ -738,7 +802,11 @@ where
                             )))
                     }
 
-                    session.format_change_pending = true;
+                    // Only a change while CAPTURE streams ends with a LAST buffer (dev-decoder,
+                    // "Dynamic Resolution Change"); the initial one, before CAPTURE is set up, has
+                    // none ("Initialization"), and waiting for one would take the drain's LAST
+                    // for it and swallow the EOS event.
+                    session.format_change_pending = session.state.is_output_streaming();
                 }
                 VideoDecoderBackendEvent::FrameCompleted {
                     buffer_id,
@@ -919,12 +987,18 @@ where
         queue: QueueType,
         memory: MemoryType,
         count: u32,
-        flags: MemoryConsistency,
+        _flags: MemoryConsistency,
     ) -> IoctlResult<bindings::v4l2_requestbuffers> {
         if memory != MemoryType::Mmap {
             return Err(libc::EINVAL);
         }
         // TODO: fail if streaming?
+
+        // REQBUFS frees the queue's buffers: whatever it keeps comes back unqueued, and none waits.
+        match queue.direction() {
+            QueueDirection::Output => session.pending_input_buffers.clear(),
+            QueueDirection::Capture => session.pending_output_buffers.clear(),
+        }
 
         let (buffers, count) = match queue {
             QueueType::VideoOutputMplane => (&mut session.input_buffers, count),
@@ -980,6 +1054,13 @@ where
                 .collect::<IoctlResult<Vec<_>>>()?;
             buffers.extend(new_buffers);
         }
+        for buffer in buffers.iter_mut() {
+            let v4l2_buffer = &mut buffer.v4l2_buffer;
+            v4l2_buffer.set_flags(BufferFlags::TIMESTAMP_COPY);
+            v4l2_buffer.set_timestamp(Default::default());
+            v4l2_buffer.set_sequence(0);
+            *v4l2_buffer.get_first_plane_mut().bytesused = 0;
+        }
 
         session
             .backend_session
@@ -992,7 +1073,9 @@ where
             capabilities: (BufferCapabilities::SUPPORTS_MMAP
                 | BufferCapabilities::SUPPORTS_ORPHANED_BUFS)
                 .bits(),
-            flags: flags.bits(),
+            // Without SUPPORTS_MMAP_CACHE_HINTS, V4L2_MEMORY_FLAG_NON_COHERENT
+            // is not honored and must not be echoed back.
+            flags: 0,
             reserved: Default::default(),
         })
     }
@@ -1072,8 +1155,18 @@ where
         }
 
         match queue.direction() {
-            QueueDirection::Output => session.state.input_streamon(),
-            QueueDirection::Capture => session.state.output_streamon(),
+            QueueDirection::Output => {
+                if !session.state.is_input_streaming() {
+                    session.input_sequence = 0;
+                }
+                session.state.input_streamon()
+            }
+            QueueDirection::Capture => {
+                if !session.state.is_output_streaming() {
+                    session.sequence_cpt = 0;
+                }
+                session.state.output_streamon()
+            }
         }
 
         session
@@ -1084,6 +1177,7 @@ where
             // TODO: start queueing pending buffers?
         }
 
+        session.try_send_pending_input_buffers()?;
         session.try_send_pending_output_buffers()
     }
 
@@ -1092,6 +1186,7 @@ where
             QueueDirection::Output => {
                 // TODO: something to do on the backend?
                 session.state.input_streamoff();
+                session.pending_input_buffers.clear();
 
                 &mut session.input_buffers
             }
@@ -1203,35 +1298,23 @@ where
                 v4l2_buffer.set_field(BufferField::None);
                 v4l2_buffer.set_timestamp(buffer.timestamp());
                 let first_plane = buffer.get_first_plane();
-                *v4l2_buffer.get_first_plane_mut().bytesused = *first_plane.bytesused;
                 let host_first_plane = v4l2_buffer.get_first_plane_mut();
-                *host_first_plane.length = *first_plane.length;
+                // The plane's length is the one allocated, not the guest's.
+                if *first_plane.bytesused > *host_first_plane.length {
+                    return Err(libc::EINVAL);
+                }
                 *host_first_plane.bytesused = *first_plane.bytesused;
                 if let Some(data_offset) = host_first_plane.data_offset {
                     *data_offset = first_plane.data_offset.copied().unwrap_or(0);
                 }
 
-                let bytes_used = {
-                    let first_plane = host_buffer.v4l2_buffer.get_first_plane();
-                    // V4L2's spec mentions that if `bytes_used == 0` then the whole buffer is considered to be
-                    // used.
-                    if *first_plane.bytesused == 0 {
-                        *first_plane.length
-                    } else {
-                        *first_plane.bytesused
-                    }
-                };
-
-                session.backend_session.decode(
-                    &host_buffer.backing,
-                    host_buffer.index(),
-                    host_buffer.timestamp(),
-                    bytes_used,
-                )?;
-
                 host_buffer.v4l2_buffer.add_flags(BufferFlags::QUEUED);
+                let res = host_buffer.v4l2_buffer.clone();
 
-                Ok(host_buffer.v4l2_buffer.clone())
+                session.pending_input_buffers.push(buffer.index());
+                session.try_send_pending_input_buffers()?;
+
+                Ok(res)
             }
             QueueDirection::Capture => {
                 // Update buffer state
@@ -1240,7 +1323,6 @@ where
                 v4l2_buffer.clear_flags(BufferFlags::LAST);
                 let host_first_plane = v4l2_buffer.get_first_plane_mut();
                 let first_plane = buffer.get_first_plane();
-                *host_first_plane.length = *first_plane.length;
                 *host_first_plane.bytesused = *first_plane.bytesused;
                 if let Some(data_offset) = host_first_plane.data_offset {
                     *data_offset = first_plane.data_offset.copied().unwrap_or(0);
