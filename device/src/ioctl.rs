@@ -1109,8 +1109,8 @@ where
         VIDIOC_DQEVENT => invalid_ioctl(ioctl, writer),
         VIDIOC_SUBSCRIBE_EVENT => {
             w_ioctl(ioctl, reader, writer, |input: v4l2_event_subscription| {
-                let event = V4l2EventType::try_from(&input).unwrap();
-                let flags = SubscribeEventFlags::from_bits(input.flags).unwrap();
+                let event = V4l2EventType::try_from(&input).map_err(|_| libc::EINVAL)?;
+                let flags = SubscribeEventFlags::from_bits(input.flags).ok_or(libc::EINVAL)?;
 
                 handler.subscribe_event(session, event, flags)
             })?;

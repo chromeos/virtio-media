@@ -462,7 +462,10 @@ impl<S: VideoDecoderBackendSession> VideoDecoderSession<S> {
         }
 
         for i in self.pending_output_buffers.drain(..) {
-            let buffer = self.output_buffers.get_mut(i as usize).unwrap();
+            // A REQBUFS that shrank the queue since took the buffer with it.
+            let Some(buffer) = self.output_buffers.get_mut(i as usize) else {
+                continue;
+            };
             self.backend_session
                 .use_as_output(buffer.index(), &mut buffer.backing)?;
         }
@@ -1167,8 +1170,14 @@ where
                 .size();
             sel_rect.left = std::cmp::max(0, sel_rect.left);
             sel_rect.top = std::cmp::max(0, sel_rect.top);
-            sel_rect.width = std::cmp::min(coded_size.0, sel_rect.width - sel_rect.left as u32);
-            sel_rect.height = std::cmp::min(coded_size.0, sel_rect.height - sel_rect.top as u32);
+            sel_rect.width = std::cmp::min(
+                coded_size.0,
+                sel_rect.width.saturating_sub(sel_rect.left as u32),
+            );
+            sel_rect.height = std::cmp::min(
+                coded_size.1,
+                sel_rect.height.saturating_sub(sel_rect.top as u32),
+            );
 
             *rect = sel_rect.into();
         }
