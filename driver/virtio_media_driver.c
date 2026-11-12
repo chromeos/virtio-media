@@ -438,14 +438,36 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 	}
 	queue = &session->queues[queue_type];
 
+	/*
+	 * Under queues_lock throughout: REQBUFS replaces queue->buffers and
+	 * STREAMOFF clears pending_dqbufs from ioctl context, while this runs
+	 * from the event worker.
+	 */
+	mutex_lock(&session->queues_lock);
+
 	if (dqbuf_evt->buffer.index >= queue->allocated_bufs) {
 		v4l2_err(&vv->v4l2_dev,
 			 "invalid buffer ID %d for queue %d in dqbuf event",
 			 dqbuf_evt->buffer.index, dqbuf_evt->buffer.type);
-		return;
+		goto out;
 	}
 
 	dqbuf = &queue->buffers[dqbuf_evt->buffer.index];
+
+	/*
+	 * Events and command replies travel on different virtqueues, so an
+	 * event the device sent before a STREAMOFF can arrive after the
+	 * STREAMOFF has returned and cleared the queue. Adding that buffer
+	 * then, and again when it is next queued and completed, links it
+	 * into pending_dqbufs twice and corrupts the list. Only a buffer the
+	 * guest still has queued can be dequeued.
+	 */
+	if (!(dqbuf->buffer.flags & V4L2_BUF_FLAG_QUEUED)) {
+		dev_dbg(&vv->virtio_dev->dev,
+			"dropping dqbuf event for unqueued buffer %d of queue %d\n",
+			dqbuf_evt->buffer.index, dqbuf_evt->buffer.type);
+		goto out;
+	}
 
 	/*
 	 * Preserve the 'm' union that was passed to us during QBUF so userspace
@@ -458,7 +480,7 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 		if (dqbuf->buffer.length > VIDEO_MAX_PLANES) {
 			v4l2_err(&vv->v4l2_dev,
 				 "invalid number of planes received from host for a multiplanar buffer\n");
-			return;
+			goto out;
 		}
 		for (i = 0; i < dqbuf->buffer.length; i++) {
 			plane_m = dqbuf->planes[i].m;
@@ -481,15 +503,22 @@ virtio_media_process_dqbuf_event(struct virtio_media *vv,
 				(now_ns % NSEC_PER_SEC) / NSEC_PER_USEC;
 	}
 
-	/* Set the DONE flag as the buffer is waiting for being dequeued. */
+	/*
+	 * Set the DONE flag as the buffer is waiting for being dequeued. The
+	 * device's flags have no QUEUED, so a repeated event is dropped too.
+	 */
 	dqbuf->buffer.flags |= V4L2_BUF_FLAG_DONE;
+	dqbuf->buffer.flags &= ~V4L2_BUF_FLAG_QUEUED;
 
-	mutex_lock(&session->queues_lock);
 	list_add_tail(&dqbuf->list, &queue->pending_dqbufs);
 	queue->queued_bufs -= 1;
 	mutex_unlock(&session->queues_lock);
 
 	wake_up(&session->dqbuf_wait);
+	return;
+
+out:
+	mutex_unlock(&session->queues_lock);
 }
 
 /**

@@ -739,6 +739,7 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 {
 	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct virtio_media_session *session = fh_to_session(vfh);
+	struct virtio_media_buffer *buffers = NULL, *old_buffers;
 	struct virtio_media_queue_state *queue;
 	int ret;
 
@@ -759,17 +760,19 @@ static int virtio_media_reqbufs(struct file *file, void *fh,
 	if (b->count == 0)
 		virtio_media_clear_queue(session, queue);
 
-	vfree(queue->buffers);
-	queue->buffers = NULL;
-
 	if (b->count > 0) {
-		queue->buffers =
-			vzalloc(sizeof(struct virtio_media_buffer) * b->count);
-		if (!queue->buffers)
+		buffers = vzalloc(sizeof(*buffers) * b->count);
+		if (!buffers)
 			return -ENOMEM;
 	}
 
+	/* The event worker reads both under queues_lock. */
+	mutex_lock(&session->queues_lock);
+	old_buffers = queue->buffers;
+	queue->buffers = buffers;
 	queue->allocated_bufs = b->count;
+	mutex_unlock(&session->queues_lock);
+	vfree(old_buffers);
 
 	/*
 	 * If a multiplanar queue is successfully used here, this means
@@ -926,14 +929,27 @@ static int virtio_media_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 	old_flags = buffer->buffer.flags;
 	buffer->buffer.flags = V4L2_BUF_FLAG_QUEUED;
 
+	/*
+	 * Count the buffer as queued before the device sees it, and under the
+	 * lock the dequeue event takes: a device that completes the buffer
+	 * right away sends that event while this thread still waits for the
+	 * command's reply, and the event's decrement would otherwise race an
+	 * unlocked increment here and be lost, until queued_bufs reaches
+	 * allocated_bufs and poll never reports the queue writable again.
+	 */
+	mutex_lock(&session->queues_lock);
+	queue->queued_bufs += 1;
+	mutex_unlock(&session->queues_lock);
+
 	ret = virtio_media_send_buffer_ioctl(vfh, VIDIOC_QBUF, b);
 	if (ret) {
 		/* Rollback the previous flags as the buffer is not queued. */
+		mutex_lock(&session->queues_lock);
+		queue->queued_bufs -= 1;
+		mutex_unlock(&session->queues_lock);
 		buffer->buffer.flags = old_flags;
 		return ret;
 	}
-
-	queue->queued_bufs += 1;
 
 	return 0;
 }
