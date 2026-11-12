@@ -843,6 +843,121 @@ static const struct v4l2_file_operations virtio_media_fops = {
 	.mmap = virtio_media_device_mmap,
 };
 
+/**
+ * virtio_media_device_implements() - Whether the device implements an ioctl.
+ * @vv: virtio-media device, ready but not yet registered.
+ * @code: ``VIDIOC_*`` code of a read-write ioctl.
+ * @payload: payload to send with it.
+ * @len: length in bytes of @payload.
+ *
+ * Asks through a session of its own: the device implements @code unless it
+ * answers it with ``ENOTTY``. The driver registers every ioctl for every
+ * device, so one it does not implement fails with ``EINVAL`` for a buffer
+ * type the V4L2 core rejects first and ``ENOTTY`` for the rest, where V4L2
+ * expects ``ENOTTY`` throughout.
+ */
+static bool virtio_media_device_implements(struct virtio_media *vv, u32 code,
+					   const void *payload, size_t len)
+{
+	struct {
+		struct virtio_media_cmd_open cmd_open;
+		struct virtio_media_resp_open resp_open;
+		struct virtio_media_cmd_ioctl cmd_ioctl;
+		struct virtio_media_resp_ioctl resp_ioctl;
+		struct virtio_media_cmd_close cmd_close;
+		u8 data[];
+	} *buf;
+	struct scatterlist cmd_sg, data_sg, resp_sg, resp_data_sg;
+	struct scatterlist *sgs[4];
+	bool implemented = true;
+	int ret;
+
+	buf = kzalloc(struct_size(buf, data, 2 * len), GFP_KERNEL);
+	if (!buf)
+		return true;
+
+	mutex_lock(&vv->vlock);
+
+	buf->cmd_open.hdr.cmd = VIRTIO_MEDIA_CMD_OPEN;
+	sg_init_one(&cmd_sg, &buf->cmd_open, sizeof(buf->cmd_open));
+	sg_init_one(&resp_sg, &buf->resp_open, sizeof(buf->resp_open));
+	sgs[0] = &cmd_sg;
+	sgs[1] = &resp_sg;
+	ret = virtio_media_send_command(vv, sgs, 1, 1, sizeof(buf->resp_open),
+					NULL);
+	if (ret < 0)
+		goto out;
+
+	buf->cmd_ioctl.hdr.cmd = VIRTIO_MEDIA_CMD_IOCTL;
+	buf->cmd_ioctl.session_id = buf->resp_open.session_id;
+	buf->cmd_ioctl.code = _IOC_NR(code);
+	memcpy(buf->data, payload, len);
+	sg_init_one(&cmd_sg, &buf->cmd_ioctl, sizeof(buf->cmd_ioctl));
+	sg_init_one(&data_sg, buf->data, len);
+	sg_init_one(&resp_sg, &buf->resp_ioctl, sizeof(buf->resp_ioctl));
+	sg_init_one(&resp_data_sg, buf->data + len, len);
+	sgs[0] = &cmd_sg;
+	sgs[1] = &data_sg;
+	sgs[2] = &resp_sg;
+	sgs[3] = &resp_data_sg;
+	ret = virtio_media_send_command(vv, sgs, 2, 2, sizeof(buf->resp_ioctl),
+					NULL);
+	implemented = ret != -ENOTTY;
+
+	buf->cmd_close.hdr.cmd = VIRTIO_MEDIA_CMD_CLOSE;
+	buf->cmd_close.session_id = buf->resp_open.session_id;
+	sg_init_one(&cmd_sg, &buf->cmd_close, sizeof(buf->cmd_close));
+	sgs[0] = &cmd_sg;
+	virtio_media_send_command(vv, sgs, 1, 0, 0, NULL);
+
+out:
+	mutex_unlock(&vv->vlock);
+	kfree(buf);
+	return implemented;
+}
+
+/**
+ * virtio_media_disable_unimplemented() - Disable the optional ioctls the
+ * device does not implement.
+ * @vv: virtio-media device, ready but not yet registered.
+ *
+ * A memory-to-memory decoder, for one, implements no ``VIDIOC_G_PARM``
+ * (dev-decoder), and v4l2-compliance expects ``ENOTTY`` from it for every
+ * buffer type. ``VIDIOC_PREPARE_BUF`` is optional, and a device that does not
+ * implement it would otherwise answer an invalid buffer with ``EINVAL`` and a
+ * valid one with ``ENOTTY``. Its probe is single-planar so that it carries no
+ * planes; a device that cannot parse it answers some other error, and keeps
+ * the ioctl.
+ */
+static void virtio_media_disable_unimplemented(struct virtio_media *vv)
+{
+	struct video_device *vd = &vv->video_dev;
+	struct v4l2_streamparm parm = {};
+	struct v4l2_buffer buf = { .memory = V4L2_MEMORY_MMAP };
+
+	if (vd->device_caps &
+	    (V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_VIDEO_M2M_MPLANE))
+		parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	else if (vd->device_caps & (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_M2M))
+		parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	else if (vd->device_caps & V4L2_CAP_VIDEO_OUTPUT_MPLANE)
+		parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+	else
+		parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+
+	if (!virtio_media_device_implements(vv, VIDIOC_G_PARM, &parm,
+					    sizeof(parm))) {
+		v4l2_disable_ioctl(vd, VIDIOC_G_PARM);
+		v4l2_disable_ioctl(vd, VIDIOC_S_PARM);
+	}
+
+	buf.type = V4L2_TYPE_IS_OUTPUT(parm.type) ? V4L2_BUF_TYPE_VIDEO_OUTPUT :
+						     V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	if (!virtio_media_device_implements(vv, VIDIOC_PREPARE_BUF, &buf,
+					    sizeof(buf)))
+		v4l2_disable_ioctl(vd, VIDIOC_PREPARE_BUF);
+}
+
 static int virtio_media_probe(struct virtio_device *virtio_dev)
 {
 	struct device *dev = &virtio_dev->dev;
@@ -930,6 +1045,10 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 
 	video_set_drvdata(vd, vv);
 
+	/* The device answers commands from here on. */
+	virtio_device_ready(virtio_dev);
+	virtio_media_disable_unimplemented(vv);
+
 	ret = video_register_device(vd, virtio_cread32(virtio_dev, 4), 0);
 	if (ret)
 		goto err_register_device;
@@ -942,13 +1061,12 @@ static int virtio_media_probe(struct virtio_device *virtio_dev)
 			goto err_send_event_buffer;
 	}
 
-	virtio_device_ready(virtio_dev);
-
 	return 0;
 
 err_send_event_buffer:
 	video_unregister_device(&vv->video_dev);
 err_register_device:
+	virtio_reset_device(virtio_dev);
 	virtio_dev->config->del_vqs(virtio_dev);
 err_find_vqs:
 	v4l2_device_unregister(&vv->v4l2_dev);
