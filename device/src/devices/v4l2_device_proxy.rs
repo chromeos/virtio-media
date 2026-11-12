@@ -61,7 +61,6 @@ use v4l2r::ioctl::DqBufIoctlError;
 use v4l2r::ioctl::DqEventError;
 use v4l2r::ioctl::EventType as V4l2EventType;
 use v4l2r::ioctl::ExpbufFlags;
-use v4l2r::ioctl::ExtControlError;
 use v4l2r::ioctl::IntoErrno;
 use v4l2r::ioctl::MemoryConsistency;
 use v4l2r::ioctl::QueryCapError;
@@ -168,6 +167,42 @@ enum ExtCtrlIoctl {
     Try,
 }
 
+fn map_ext_ctrl_payloads<M: VirtioMediaGuestMemoryMapper>(
+    mem: &M,
+    ctrls: &mut v4l2_ext_controls,
+    ctrl_array: &[v4l2_ext_control],
+    mem_regions: Vec<Vec<SgEntry>>,
+) -> IoctlResult<Vec<M::GuestMemoryMapping>> {
+    let ptr_ctrl_count = ctrl_array.iter().filter(|ctrl| ctrl.size > 0).count();
+    if ptr_ctrl_count != mem_regions.len() {
+        error!(
+            "mismatched extended control payload count: expected {}, got {}",
+            ptr_ctrl_count,
+            mem_regions.len()
+        );
+        ctrls.error_idx = ctrls.count;
+        return Err(libc::EINVAL);
+    }
+
+    ctrl_array
+        .iter()
+        .enumerate()
+        .filter(|(_, ctrl)| ctrl.size > 0)
+        .zip(mem_regions)
+        .map(|((idx, _), sgs)| {
+            mem.new_mapping(sgs).map_err(|e| {
+                error!(
+                    "failed to map extended control payload at index {}: {:#}",
+                    idx, e
+                );
+                // Match V4L2 usercopy semantics for an unmappable control payload pointer.
+                ctrls.error_idx = u32::try_from(idx).unwrap_or(ctrls.count);
+                libc::EFAULT
+            })
+        })
+        .collect()
+}
+
 fn perform_ext_ctrls_ioctl<M: VirtioMediaGuestMemoryMapper>(
     ioctl: ExtCtrlIoctl,
     device: &V4l2Device,
@@ -178,21 +213,15 @@ fn perform_ext_ctrls_ioctl<M: VirtioMediaGuestMemoryMapper>(
         &mut Vec<v4l2_ext_control>,
         Vec<Vec<SgEntry>>,
     ),
-) -> Result<(), ExtControlError> {
+) -> IoctlResult<()> {
     let (ctrls, ctrl_array, mem_regions) = ctrls;
+
+    // Map payloads before patching pointers so an error cannot expose host addresses.
+    let mut payloads = map_ext_ctrl_payloads(mem, ctrls, ctrl_array, mem_regions)?;
+
     // TODO only backup the addresses of controls which size of > 0 for efficiency? Also keep track
     // of the control index so we don't make a mistake if the host changes the control size.
     let ctrl_array_backup = ctrl_array.clone();
-
-    // Read the payloads for all the controls with one.
-    let mut payloads = ctrl_array
-        .iter()
-        .filter(|ctrl| ctrl.size > 0)
-        .zip(mem_regions)
-        .map(|(_, sgs)| mem.new_mapping(sgs))
-        // TODO remove unwrap
-        .collect::<anyhow::Result<Vec<_>>>()
-        .unwrap();
 
     // Patch the pointers to the payloads.
     for (ctrl, payload) in ctrl_array
@@ -218,11 +247,10 @@ fn perform_ext_ctrls_ioctl<M: VirtioMediaGuestMemoryMapper>(
         ctrl.__bindgen_anon_1.ptr = unsafe { ctrl_backup.__bindgen_anon_1.ptr };
     }
 
-    if let Err(e) = &res {
+    res.map_err(|e| {
         ctrls.error_idx = e.error_idx;
-    }
-
-    res
+        e.into_errno()
+    })
 }
 
 /// Information about a given USERPTR memory plane.
@@ -958,7 +986,6 @@ where
             which,
             (ctrls, ctrl_array, user_regions),
         )
-        .map_err(|e| e.into_errno())
     }
 
     fn s_ext_ctrls(
@@ -976,7 +1003,6 @@ where
             which,
             (ctrls, ctrl_array, user_regions),
         )
-        .map_err(|e| e.into_errno())
     }
 
     fn try_ext_ctrls(
@@ -994,7 +1020,6 @@ where
             which,
             (ctrls, ctrl_array, user_regions),
         )
-        .map_err(|e| e.into_errno())
     }
 
     fn enum_framesizes(
