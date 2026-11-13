@@ -677,26 +677,40 @@ static __poll_t virtio_media_device_poll(struct file *file, poll_table *wait)
 		&session->queues[output_type];
 	__poll_t req_events = poll_requested_events(wait);
 	__poll_t rc = 0;
+	bool capture_idle, output_idle;
 
 	poll_wait(file, &session->dqbuf_wait, wait);
 	poll_wait(file, &session->fh.wait, wait);
 
 	mutex_lock(&session->queues_lock);
-	if (req_events & (EPOLLIN | EPOLLRDNORM)) {
-		if (!capture_queue->streaming ||
-		    (capture_queue->queued_bufs == 0 &&
-		     list_empty(&capture_queue->pending_dqbufs)))
-			rc |= EPOLLERR;
-		else if (!list_empty(&capture_queue->pending_dqbufs))
-			rc |= EPOLLIN | EPOLLRDNORM;
-	}
-	if (req_events & (EPOLLOUT | EPOLLWRNORM)) {
-		if (!output_queue->streaming)
-			rc |= EPOLLERR;
-		else if (output_queue->queued_bufs <
-			 output_queue->allocated_bufs)
-			rc |= EPOLLOUT | EPOLLWRNORM;
-	}
+	/*
+	 * As v4l2_m2m_poll_for_data(): an error only when neither queue can
+	 * make progress. A decoder's CAPTURE queue is off in the middle of a
+	 * dynamic resolution change while OUTPUT streams on, and a client
+	 * polling through it must not be told the device has failed.
+	 */
+	capture_idle = !capture_queue->streaming ||
+		       (capture_queue->queued_bufs == 0 &&
+			list_empty(&capture_queue->pending_dqbufs) &&
+			!capture_queue->is_capture_last);
+	output_idle = !output_queue->streaming ||
+		      (output_queue->queued_bufs == 0 &&
+		       list_empty(&output_queue->pending_dqbufs));
+	if (capture_idle && output_idle)
+		rc |= EPOLLERR;
+	/*
+	 * After the LAST buffer DQBUF returns -EPIPE at once, so CAPTURE is
+	 * readable, as vb2 reports it.
+	 */
+	if ((req_events & (EPOLLIN | EPOLLRDNORM)) &&
+	    capture_queue->streaming &&
+	    (!list_empty(&capture_queue->pending_dqbufs) ||
+	     capture_queue->is_capture_last))
+		rc |= EPOLLIN | EPOLLRDNORM;
+	if ((req_events & (EPOLLOUT | EPOLLWRNORM)) &&
+	    output_queue->streaming &&
+	    output_queue->queued_bufs < output_queue->allocated_bufs)
+		rc |= EPOLLOUT | EPOLLWRNORM;
 	mutex_unlock(&session->queues_lock);
 
 	if (v4l2_event_pending(&session->fh))
